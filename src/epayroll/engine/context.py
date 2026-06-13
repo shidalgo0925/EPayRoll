@@ -33,6 +33,7 @@ class PayrollInput:
 
     es_quincena: bool = False
     descuento_voluntario: Decimal = Decimal("0")
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

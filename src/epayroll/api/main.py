@@ -1,17 +1,31 @@
 from __future__ import annotations
 
+import os
+
 from datetime import date
 from decimal import Decimal
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.requests import Request
+from starlette.responses import Response
 
 from epayroll import __version__
+from epayroll.auth.dependencies import get_auth_context
+from epayroll.auth.jwt import encode_jwt
+from epayroll.auth.middleware import En1AuthMiddleware
 from epayroll.api.schemas import (
     AchExportRequest,
     BankAccountCreate,
     OdooEmployeeSyncRequest,
+    IncapacityCreate,
+    IncapacityPeriodImpactRequest,
     AttendanceCalculateRequest,
     DecimoRunCreate,
     PeriodCloseRequest,
@@ -20,11 +34,19 @@ from epayroll.api.schemas import (
     TerminationCalculateRequest,
     TimeEntryCreate,
     VacationAccrueRequest,
+    VacationApproveRequest,
+    VacationSubstituteAssign,
     VacationRequestCreate,
     ContractCreate,
     ContractResponse,
     EmployeeCreate,
     EmployeeResponse,
+    LoginRequest,
+    LoginResponse,
+    SsoConfigResponse,
+    SsoExchangeRequest,
+    SsoRefreshRequest,
+    SsoTokenResponse,
     HealthResponse,
     PayrollPeriodCreate,
     PayrollRunCreate,
@@ -33,6 +55,7 @@ from epayroll.db.analytics_repository import AnalyticsRepository
 from epayroll.db.attendance_repository import AttendanceRepository
 from epayroll.db.connection import get_connection, get_database_url
 from epayroll.db.export_repository import ExportRepository
+from epayroll.db.incapacity_repository import IncapacityRepository
 from epayroll.db.integration_repository import IntegrationRepository
 from epayroll.db.payslip_repository import PayslipRepository
 from epayroll.db.repositories import ContractRepository, EmployeeRepository, PayrollRepository
@@ -46,6 +69,18 @@ app = FastAPI(
     description="Sistema de planilla Panamá — Easy Technology Services",
     version=__version__,
 )
+app.add_middleware(En1AuthMiddleware)
+
+
+class UiNoCacheMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        response = await call_next(request)
+        if request.url.path.startswith("/app/"):
+            response.headers["Cache-Control"] = "no-cache, must-revalidate"
+        return response
+
+
+app.add_middleware(UiNoCacheMiddleware)
 
 employees_repo = EmployeeRepository()
 contracts_repo = ContractRepository()
@@ -62,14 +97,112 @@ payslip_repo = PayslipRepository()
 vacation_repo = VacationRepository()
 export_repo = ExportRepository()
 integration_repo = IntegrationRepository()
+incapacity_repo = IncapacityRepository()
 analytics_repo = AnalyticsRepository(vacation_repo=vacation_repo)
 
 DEMO_ORG_ID = "00000000-0000-0000-0000-000000000010"
+UI_DIR = Path(__file__).resolve().parents[3] / "ui" / "static"
 
 
 @app.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     return HealthResponse(status="ok", version=__version__)
+
+
+@app.get("/api/v1/auth/me")
+def auth_me(request: Request) -> dict[str, object]:
+    """Contexto EN1 resuelto (stub headers o JWT)."""
+    ctx = get_auth_context(request)
+    return {
+        "authenticated": ctx.authenticated,
+        "tenant_id": ctx.tenant_id or None,
+        "organization_id": ctx.organization_id,
+        "user_id": ctx.user_id,
+        "roles": list(ctx.roles),
+    }
+
+
+@app.post("/api/v1/auth/login", response_model=LoginResponse)
+def auth_login(body: LoginRequest) -> LoginResponse:
+    """
+    Login EN1 — emite JWT para la UI.
+    Requiere EPAYROLL_LOGIN_API_KEY (compartida con EN1 o panel admin).
+    """
+    expected = os.environ.get("EPAYROLL_LOGIN_API_KEY", "dev-login-key")
+    if body.api_key != expected:
+        raise HTTPException(status_code=401, detail="API key inválida")
+
+    from epayroll.auth.context import AuthContext
+    from epayroll.auth.guard import TenantGuard
+
+    if body.organization_id:
+        TenantGuard().assert_org_access(
+            AuthContext(tenant_id=body.tenant_id, user_id=body.user_id),
+            body.organization_id,
+        )
+
+    token = encode_jwt(
+        tenant_id=body.tenant_id,
+        user_id=body.user_id,
+        organization_id=body.organization_id,
+        roles=body.roles,
+    )
+    return LoginResponse(
+        access_token=token,
+        tenant_id=body.tenant_id,
+        organization_id=body.organization_id,
+        user_id=body.user_id,
+    )
+
+
+@app.get("/api/v1/auth/sso/config", response_model=SsoConfigResponse)
+def auth_sso_config(request: Request) -> SsoConfigResponse:
+    """Configuración OAuth EN1 para redirect SSO en la UI."""
+    from epayroll.auth.settings import get_auth_settings
+    from epayroll.auth.sso import default_app_base_url, sso_config_payload
+
+    settings = get_auth_settings()
+    base = default_app_base_url() or str(request.base_url).rstrip("/")
+    cfg = sso_config_payload(settings, app_base_url=base)
+    return SsoConfigResponse(**cfg)
+
+
+@app.post("/api/v1/auth/sso/exchange", response_model=SsoTokenResponse)
+def auth_sso_exchange(body: SsoExchangeRequest) -> SsoTokenResponse:
+    """Intercambia authorization code EN1 por tokens (server-side, secret protegido)."""
+    from epayroll.auth.jwt import AuthError
+    from epayroll.auth.settings import get_auth_settings
+    from epayroll.auth.sso import exchange_code
+
+    try:
+        payload = exchange_code(body.code, get_auth_settings(), redirect_uri=body.redirect_uri)
+    except AuthError as e:
+        raise HTTPException(status_code=401, detail=str(e)) from e
+    return SsoTokenResponse(
+        access_token=payload["access_token"],
+        token_type=payload.get("token_type", "bearer"),
+        expires_in=payload.get("expires_in"),
+        refresh_token=payload.get("refresh_token"),
+    )
+
+
+@app.post("/api/v1/auth/sso/refresh", response_model=SsoTokenResponse)
+def auth_sso_refresh(body: SsoRefreshRequest) -> SsoTokenResponse:
+    """Renueva access_token EN1 con refresh_token."""
+    from epayroll.auth.jwt import AuthError
+    from epayroll.auth.settings import get_auth_settings
+    from epayroll.auth.sso import refresh_tokens
+
+    try:
+        payload = refresh_tokens(body.refresh_token, get_auth_settings())
+    except AuthError as e:
+        raise HTTPException(status_code=401, detail=str(e)) from e
+    return SsoTokenResponse(
+        access_token=payload["access_token"],
+        token_type=payload.get("token_type", "bearer"),
+        expires_in=payload.get("expires_in"),
+        refresh_token=payload.get("refresh_token"),
+    )
 
 
 @app.get("/health/db")
@@ -116,6 +249,7 @@ def create_contract(employee_id: str, body: ContractCreate) -> ContractResponse:
             salario_base=body.salario_base,
             fecha_inicio=body.fecha_inicio,
             forma_pago=body.forma_pago,
+            categoria_salario_minimo=body.categoria_salario_minimo,
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -384,11 +518,44 @@ def list_vacation_requests(employee_id: str) -> list[dict[str, Any]]:
 
 
 @app.post("/api/v1/vacation/requests/{request_id}/approve")
-def approve_vacation_request(request_id: str) -> dict[str, str]:
+def approve_vacation_request(
+    request_id: str,
+    body: VacationApproveRequest | None = None,
+) -> dict[str, str]:
     try:
-        return vacation_repo.approve_request(request_id)
+        return vacation_repo.approve_request(
+            request_id,
+            aprobado_por=body.aprobado_por if body else None,
+            substitute_employee_id=body.substitute_employee_id if body else None,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.post("/api/v1/vacation/requests/{request_id}/substitute")
+def assign_vacation_substitute(
+    request_id: str,
+    body: VacationSubstituteAssign,
+) -> dict[str, str]:
+    """Asigna empleado sustituto para cobertura operativa (Fase 5.5)."""
+    try:
+        return vacation_repo.assign_substitute(request_id, body.substitute_employee_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.get("/api/v1/organizations/{organization_id}/vacation/coverage")
+def vacation_coverage_dashboard(
+    organization_id: str,
+    fecha_desde: date | None = None,
+) -> dict[str, Any]:
+    """Vacaciones programadas con/sin sustituto asignado."""
+    try:
+        return vacation_repo.org_coverage_dashboard(organization_id, fecha_desde=fecha_desde)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
@@ -556,6 +723,21 @@ def sync_odoo_employees(organization_id: str, body: OdooEmployeeSyncRequest) -> 
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@app.post("/api/v1/integrations/odoo/journal/{run_id}/push")
+def odoo_journal_push(run_id: str) -> dict[str, Any]:
+    """Push automático del asiento contable a Odoo (requiere ODOO_PUSH_URL + ODOO_API_KEY)."""
+    from epayroll.integration.odoo_push import OdooPushError
+
+    try:
+        return integration_repo.push_odoo_journal(run_id)
+    except OdooPushError as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 @app.post("/api/v1/integrations/odoo/journal/{run_id}")
 def odoo_journal_entry(run_id: str) -> dict[str, Any]:
     """Genera asiento contable Odoo (JSON) desde corrida de planilla."""
@@ -635,6 +817,62 @@ def get_attendance(
     }
 
 
+@app.post("/api/v1/employees/{employee_id}/incapacities")
+def create_incapacity(employee_id: str, body: IncapacityCreate) -> dict[str, str]:
+    """Registra incapacidad — Art. 200 / CSS."""
+    try:
+        return incapacity_repo.create(
+            employee_id=employee_id,
+            fecha_inicio=body.fecha_inicio,
+            fecha_fin=body.fecha_fin,
+            tipo=body.tipo,
+            certificado_ref=body.certificado_ref,
+            dias_subsidio_css=body.dias_subsidio_css,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.get("/api/v1/employees/{employee_id}/incapacities")
+def list_incapacities(employee_id: str) -> list[dict[str, Any]]:
+    try:
+        return incapacity_repo.list_for_employee(employee_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.get("/api/v1/employees/{employee_id}/license-fund/balance")
+def license_fund_balance(employee_id: str, anio: int | None = None) -> dict[str, str]:
+    """Saldo fondo licencia Art. 200 (12h / 26 jornadas)."""
+    try:
+        return incapacity_repo.get_license_fund_balance(employee_id, anio=anio)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.post("/api/v1/employees/{employee_id}/incapacities/period-impact")
+def incapacity_period_impact(
+    employee_id: str,
+    body: IncapacityPeriodImpactRequest,
+) -> dict[str, Any]:
+    """Calcula impacto GT-10 en un período (días, pagos empleador/CSS)."""
+    salario = body.salario_mensual
+    if salario is None:
+        contract = contracts_repo.get_active(employee_id)
+        if not contract:
+            raise HTTPException(status_code=400, detail="Sin contrato activo ni salario_mensual")
+        salario = contract.salario_base
+    try:
+        return incapacity_repo.calculate_period_impact(
+            employee_id=employee_id,
+            fecha_inicio=body.fecha_inicio,
+            fecha_fin=body.fecha_fin,
+            salario_mensual=salario,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
 @app.get("/api/v1/demo/setup")
 def demo_setup() -> dict[str, Any]:
     """Crea empleado demo GT-01 si no existe (requiere seed en BD)."""
@@ -674,3 +912,12 @@ def demo_setup() -> dict[str, Any]:
         "payroll_period_id": period_id,
         "message": "Demo creado — ejecutar POST /api/v1/payroll/runs",
     }
+
+
+@app.get("/")
+def ui_redirect() -> RedirectResponse:
+    return RedirectResponse(url="/app/", status_code=302)
+
+
+if UI_DIR.is_dir():
+    app.mount("/app", StaticFiles(directory=str(UI_DIR), html=True), name="ui")

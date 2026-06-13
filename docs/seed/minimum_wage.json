@@ -1,0 +1,23 @@
+{
+  "version": "1.0",
+  "vigencia_desde": "2026-01-01",
+  "referencia_legal": "Decreto salario mínimo — validar montos con contador antes de producción",
+  "default_categoria": "DEPENDIENTE_COMERCIO",
+  "categorias": [
+    {
+      "codigo": "DEPENDIENTE_COMERCIO",
+      "descripcion": "Dependiente comercio — región Panamá",
+      "region": "PANAMA",
+      "actividad": "COMERCIO",
+      "monto_mensual": "340.00",
+      "notas": "GT-07 ejemplo ilustrativo"
+    },
+    {
+      "codigo": "DEPENDIENTE_GENERAL",
+      "descripcion": "Categoría general",
+      "region": "PANAMA",
+      "actividad": "GENERAL",
+      "monto_mensual": "340.00"
+    }
+  ]
+}

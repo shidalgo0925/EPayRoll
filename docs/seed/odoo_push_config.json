@@ -1,0 +1,8 @@
+{
+  "version": "1.0",
+  "referencia": "Push asiento contable — adaptar URL a instalación Odoo",
+  "method": "POST",
+  "content_type": "application/json",
+  "timeout_seconds": 30,
+  "nota": "Variables: ODOO_PUSH_URL, ODOO_API_KEY, ODOO_DATABASE"
+}

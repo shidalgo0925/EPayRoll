@@ -11,7 +11,7 @@ from epayroll.engine.context import PayrollInput
 from epayroll.engine.deductions import validate_art161
 from epayroll.engine.orchestrator import LineResult, PayrollEngine, PayrollResult
 
-from .config_loader import load_config
+from epayroll.compliance.minimum_wage import validate_salary_base
 from .connection import get_connection
 
 
@@ -84,8 +84,10 @@ class ContractRepository:
         salario_base: Decimal,
         fecha_inicio: date,
         forma_pago: str = "QUINCENAL",
+        categoria_salario_minimo: str | None = None,
         database_url: str | None = None,
     ) -> ContractRecord:
+        validate_salary_base(salario_base, categoria_salario_minimo, fecha_inicio)
         contract_id = str(uuid.uuid4())
         with get_connection(database_url) as conn:
             with conn.cursor() as cur:
@@ -238,6 +240,16 @@ class PayrollRepository:
             raise ValueError(
                 f"El periodo debe estar en CALCULADO para cerrar (actual: {period['estado']})"
             )
+
+        from datetime import date
+
+        org_id = period["organization_id"]
+        emp_repo = EmployeeRepository()
+        contract_repo = ContractRepository()
+        for emp in emp_repo.list_by_org(org_id, database_url=database_url):
+            contract = contract_repo.get_active(emp.id, database_url=database_url)
+            if contract:
+                validate_salary_base(contract.salario_base, None, date.today())
 
         resolved_run = run_id or self.get_latest_run_id(payroll_period_id, database_url=database_url)
         if not resolved_run:

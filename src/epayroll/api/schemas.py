@@ -7,6 +7,47 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
+class LoginRequest(BaseModel):
+    tenant_id: str
+    organization_id: str | None = None
+    user_id: str
+    api_key: str
+    roles: list[str] = Field(default_factory=lambda: ["payroll_admin"])
+
+
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    tenant_id: str
+    organization_id: str | None = None
+    user_id: str
+    expires_in_hours: int = 8
+
+
+class SsoConfigResponse(BaseModel):
+    enabled: bool
+    authorize_url: str | None = None
+    client_id: str | None = None
+    redirect_uri: str | None = None
+    scopes: str | None = None
+
+
+class SsoExchangeRequest(BaseModel):
+    code: str
+    redirect_uri: str | None = None
+
+
+class SsoTokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int | None = None
+    refresh_token: str | None = None
+
+
+class SsoRefreshRequest(BaseModel):
+    refresh_token: str
+
+
 class EmployeeCreate(BaseModel):
     cedula: str
     nombres: str
@@ -28,6 +69,7 @@ class ContractCreate(BaseModel):
     salario_base: Decimal
     fecha_inicio: date
     forma_pago: str = "QUINCENAL"
+    categoria_salario_minimo: str | None = None
 
 
 class ContractResponse(BaseModel):
@@ -101,6 +143,15 @@ class VacationRequestCreate(BaseModel):
     dias_solicitados: Decimal
 
 
+class VacationApproveRequest(BaseModel):
+    substitute_employee_id: str | None = None
+    aprobado_por: str | None = None
+
+
+class VacationSubstituteAssign(BaseModel):
+    substitute_employee_id: str
+
+
 class VacationAccrueRequest(BaseModel):
     fecha_corte: date | None = None
 
@@ -134,6 +185,20 @@ class TimeEntryCreate(BaseModel):
 class AttendanceCalculateRequest(BaseModel):
     fecha_inicio: date
     fecha_fin: date
+
+
+class IncapacityCreate(BaseModel):
+    fecha_inicio: date
+    fecha_fin: date
+    tipo: str = "CSS"
+    certificado_ref: str | None = None
+    dias_subsidio_css: int | None = None
+
+
+class IncapacityPeriodImpactRequest(BaseModel):
+    fecha_inicio: date
+    fecha_fin: date
+    salario_mensual: Decimal | None = None
 
 
 class HealthResponse(BaseModel):

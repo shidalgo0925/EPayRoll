@@ -6,6 +6,7 @@ from decimal import Decimal
 from typing import Any
 
 from epayroll.vacation.calculator import calculate_balance, load_vacation_config
+from epayroll.vacation.substitutions import validate_substitute_assignment
 
 from .connection import get_connection
 
@@ -144,23 +145,134 @@ class VacationRepository:
         self,
         request_id: str,
         aprobado_por: str | None = None,
+        substitute_employee_id: str | None = None,
         database_url: str | None = None,
     ) -> dict[str, str]:
+        if substitute_employee_id:
+            self._validate_substitute(request_id, substitute_employee_id, database_url=database_url)
         with get_connection(database_url) as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
                     UPDATE vacation_requests
-                    SET estado = 'APROBADO', aprobado_por = %s::uuid
+                    SET estado = 'APROBADO',
+                        aprobado_por = %s::uuid,
+                        substitute_employee_id = COALESCE(%s::uuid, substitute_employee_id)
                     WHERE id = %s::uuid AND estado = 'SOLICITADO'
                     RETURNING employee_id
                     """,
-                    (aprobado_por, request_id),
+                    (aprobado_por, substitute_employee_id, request_id),
                 )
                 row = cur.fetchone()
                 if not row:
                     raise ValueError("Solicitud no encontrada o no esta en SOLICITADO")
         return {"request_id": request_id, "estado": "APROBADO"}
+
+    def assign_substitute(
+        self,
+        request_id: str,
+        substitute_employee_id: str,
+        database_url: str | None = None,
+    ) -> dict[str, str]:
+        self._validate_substitute(request_id, substitute_employee_id, database_url=database_url)
+        with get_connection(database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE vacation_requests
+                    SET substitute_employee_id = %s::uuid
+                    WHERE id = %s::uuid AND estado IN ('SOLICITADO', 'APROBADO')
+                    RETURNING id
+                    """,
+                    (substitute_employee_id, request_id),
+                )
+                if not cur.fetchone():
+                    raise ValueError("Solicitud no encontrada o no permite sustitución")
+        return {"request_id": request_id, "substitute_employee_id": substitute_employee_id}
+
+    def _validate_substitute(
+        self,
+        request_id: str,
+        substitute_employee_id: str,
+        database_url: str | None = None,
+    ) -> None:
+        with get_connection(database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT vr.employee_id, e1.organization_id, e2.organization_id, e2.activo
+                    FROM vacation_requests vr
+                    JOIN employees e1 ON e1.id = vr.employee_id
+                    JOIN employees e2 ON e2.id = %s::uuid
+                    WHERE vr.id = %s::uuid
+                    """,
+                    (substitute_employee_id, request_id),
+                )
+                row = cur.fetchone()
+                if not row:
+                    raise ValueError("Solicitud o sustituto no encontrado")
+                titular_id, org1, org2, activo = row
+                validate_substitute_assignment(
+                    str(titular_id),
+                    substitute_employee_id,
+                    str(org1),
+                    str(org2),
+                    bool(activo),
+                )
+
+    def org_coverage_dashboard(
+        self,
+        organization_id: str,
+        fecha_desde: date | None = None,
+        database_url: str | None = None,
+    ) -> dict[str, Any]:
+        """Vacaciones aprobadas/solicitadas sin sustituto asignado (cobertura pendiente)."""
+        fecha_desde = fecha_desde or date.today()
+        with get_connection(database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT vr.id, vr.employee_id, e.nombres, e.apellidos,
+                           vr.fecha_inicio, vr.fecha_fin, vr.dias_solicitados,
+                           vr.estado::text, vr.substitute_employee_id
+                    FROM vacation_requests vr
+                    JOIN employees e ON e.id = vr.employee_id
+                    WHERE e.organization_id = %s::uuid
+                      AND vr.estado IN ('SOLICITADO', 'APROBADO')
+                      AND vr.fecha_fin >= %s
+                    ORDER BY vr.fecha_inicio
+                    """,
+                    (organization_id, fecha_desde),
+                )
+                rows = cur.fetchall()
+
+        pendientes = []
+        cubiertas = []
+        for r in rows:
+            item = {
+                "request_id": str(r[0]),
+                "employee_id": str(r[1]),
+                "empleado": f"{r[2]} {r[3]}",
+                "fecha_inicio": r[4].isoformat(),
+                "fecha_fin": r[5].isoformat(),
+                "dias_solicitados": str(r[6]),
+                "estado": r[7],
+                "substitute_employee_id": str(r[8]) if r[8] else None,
+            }
+            if r[8]:
+                cubiertas.append(item)
+            else:
+                pendientes.append(item)
+
+        return {
+            "organization_id": organization_id,
+            "fecha_desde": fecha_desde.isoformat(),
+            "total_programadas": len(rows),
+            "sin_cobertura": len(pendientes),
+            "con_cobertura": len(cubiertas),
+            "pendientes": pendientes,
+            "cubiertas": cubiertas,
+        }
 
     def list_requests(
         self,
@@ -171,7 +283,8 @@ class VacationRepository:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT id, fecha_inicio, fecha_fin, dias_solicitados, estado::text, created_at
+                    SELECT id, fecha_inicio, fecha_fin, dias_solicitados, estado::text,
+                           created_at, substitute_employee_id
                     FROM vacation_requests
                     WHERE employee_id = %s::uuid
                     ORDER BY fecha_inicio DESC
@@ -187,6 +300,7 @@ class VacationRepository:
                 "dias_solicitados": str(r[3]),
                 "estado": r[4],
                 "created_at": r[5].isoformat(),
+                "substitute_employee_id": str(r[6]) if r[6] else None,
             }
             for r in rows
         ]

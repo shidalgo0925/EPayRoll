@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>EPayRoll — Easy Technology Services</title>
+    <link rel="stylesheet" href="/app/css/app.css?v=3" />
+  </head>
+  <body>
+    <div class="layout">
+      <aside class="sidebar">
+        <div class="brand">
+          EPayRoll
+          <small>Panamá · EN1</small>
+        </div>
+
+        <div id="api-status" class="loading" style="font-size: 0.8rem">Conectando…</div>
+
+        <nav>
+          <button type="button" data-page="dashboard" class="active">Dashboard</button>
+          <button type="button" data-page="employees">Empleados</button>
+          <button type="button" data-page="payroll">Planilla</button>
+        </nav>
+
+        <div class="config-panel">
+          <label for="cfg-tenant">Tenant ID</label>
+          <input id="cfg-tenant" type="text" spellcheck="false" />
+
+          <label for="cfg-org">Organización ID</label>
+          <input id="cfg-org" type="text" spellcheck="false" />
+
+          <label for="cfg-base">API base (vacío = mismo origen)</label>
+          <input id="cfg-base" type="text" spellcheck="false" />
+          <button type="button" class="btn btn-secondary" id="btn-login-open" style="width:100%;margin-top:0.5rem">Iniciar sesión</button>
+          <button type="button" class="btn btn-secondary" id="btn-logout" style="width:100%;margin-top:0.35rem">Cerrar sesión</button>
+        </div>
+      </aside>
+
+      <main id="page-content">
+        <p class="loading">Cargando…</p>
+      </main>
+    </div>
+
+    <div id="login-modal" class="login-modal hidden">
+      <div class="login-card panel">
+        <h2>Iniciar sesión EN1</h2>
+        <p class="loading" style="margin-bottom:1rem">JWT para acceso seguro a la API</p>
+        <form id="login-form">
+          <label>Tenant ID</label>
+          <input name="tenant" type="text" required />
+          <label>Organización ID</label>
+          <input name="org" type="text" />
+          <label>Usuario ID</label>
+          <input name="user" type="text" value="admin" />
+          <label>API Key</label>
+          <input name="apikey" type="password" required placeholder="EPAYROLL_LOGIN_API_KEY" />
+          <div id="login-error" class="alert alert-error hidden" style="margin-top:0.75rem"></div>
+          <button type="submit" class="btn" style="width:100%;margin-top:1rem">Entrar</button>
+          <button type="button" class="btn btn-secondary hidden" id="btn-sso-en1" style="width:100%;margin-top:0.65rem">Iniciar sesión con EN1</button>
+        </form>
+      </div>
+    </div>
+
+    <script src="/app/js/bundle.js?v=5" defer></script>
+  </body>
+</html>

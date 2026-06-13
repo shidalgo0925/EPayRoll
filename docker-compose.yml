@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: epayroll
       POSTGRES_DB: epayroll
     ports:
-      - "5432:5432"
+      - "${EPAYROLL_DB_PORT:-5432}:5432"
     volumes:
       - epayroll_pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -16,6 +16,22 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  api:
+    build: .
+    container_name: epayroll-api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://epayroll:epayroll@db:5432/epayroll
+      EPAYROLL_AUTH_MODE: ${EPAYROLL_AUTH_MODE:-stub}
+      EPAYROLL_JWT_SECRET: ${EPAYROLL_JWT_SECRET:-change-me}
+    ports:
+      - "${EPAYROLL_API_PORT:-8001}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./storage:/app/storage
 
 volumes:
   epayroll_pgdata:

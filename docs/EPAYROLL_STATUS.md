@@ -13,11 +13,11 @@ Padre: [EPAYROLL_MASTER_PLAN.md](./EPAYROLL_MASTER_PLAN.md) · Plan de fases: [E
 | Item | Estado |
 |------|--------|
 | **MVP backend (Fases 0–8)** | ✅ Código completo |
-| **Tests unitarios** | ✅ 40 passed, 1 skipped (`test_db_config` integración BD) |
-| **BD + migraciones** | ✅ 8 migraciones SQL (`001`–`008`) |
-| **Piloto end-to-end con BD** | ⏳ **BLOQUEADO en PC local** — Docker no instalado |
-| **Próximo paso operativo** | Levantar en **apps srv** con Docker + piloto quincenal |
-| **Próximo paso producto** | Auth EN1, UI web, validación contador |
+| **Tests unitarios** | ✅ 75 passed, 1 skipped (`test_db_config` integración BD) |
+| **BD + migraciones** | ✅ 9 migraciones SQL (`001`–`009`) |
+| **Piloto end-to-end con BD** | ✅ Completado en apps srv (2026-06-13) |
+| **Próximo paso operativo** | Firma contador sobre `storage/reports/golden_*.md` |
+| **Próximo paso producto** | Integración EN1 producción (JWKS + OAuth URLs reales) |
 
 ### Hitos completados en código
 
@@ -26,13 +26,15 @@ Padre: [EPAYROLL_MASTER_PLAN.md](./EPAYROLL_MASTER_PLAN.md) · Plan de fases: [E
 | 0 | Blueprint + seed JSON | GT-01…GT-10 documentados |
 | 1 | Modelo datos + migraciones | `database/migrations/` |
 | 1.5 | API FastAPI + persistencia | `src/epayroll/api/main.py` |
+| 1.5 | Auth EN1 stub/JWT/en1 + RBAC + SSO OAuth | `src/epayroll/auth/` — `tests/test_sso.py` |
 | 2 | Motor de reglas | `tests/test_engine.py` |
-| 3 | Asistencia (extras, feriados) | `tests/test_attendance.py` — Art. 200 ⏳ |
+| 3 | Asistencia (extras, feriados) | `tests/test_attendance.py` |
+| 3.5 | Incapacidades Art. 200 + fondo licencia | `tests/test_incapacity.py` — GT-10 |
 | 4 | Planilla, décimo, ISR YTD, liquidación, PDF | `tests/test_payroll_phase4.py`, `test_liquidation.py`, `test_payslip.py` |
-| 5 | Vacaciones Arts. 52–59 | `tests/test_vacation.py` — sustituciones ⏳ |
+| 5.5 | Sustituciones vacaciones + cobertura | `tests/test_vacation_substitutions.py` |
 | 6 | SIPE 24 cols + DGI Form 03 | `tests/test_sipe_export.py` (GT-08) |
-| 7 | Odoo sync/journal + ACH | `tests/test_integrations.py` — push Odoo API ⏳ |
-| 8 | Analítica gerencial | `tests/test_analytics.py` — UI ejecutiva ⏳ |
+| 7 | Odoo sync/journal + ACH + push API | `tests/test_integrations.py`, `tests/test_odoo_push.py` |
+| 8 | Analítica gerencial + UI ejecutiva | `tests/test_analytics.py`, dashboard `/app` |
 
 ---
 
@@ -103,17 +105,15 @@ curl http://localhost:8000/health/db
 curl http://localhost:8000/api/v1/demo/setup
 ```
 
-### 3.4 Piloto end-to-end (checklist — **SIGUIENTE TAREA**)
+### 3.4 Piloto end-to-end (checklist)
 
-Marcar cuando funcione en apps srv:
-
-- [ ] `GET /api/v1/demo/setup` — empleado demo GT-01
-- [ ] `POST /api/v1/payroll/periods/{id}/run` — corrida quincenal batch
-- [ ] `POST /api/v1/payroll/periods/{id}/close` — recibos PDF
-- [ ] `POST /api/v1/exports/sipe/{run_id}` — SIPE + conciliación GT-08
-- [ ] `POST /api/v1/exports/dgi/{run_id}` — Form 03
-- [ ] `POST /api/v1/employees/{id}/bank-account` + `POST /api/v1/exports/ach/{run_id}`
-- [ ] `GET /api/v1/organizations/{id}/analytics/dashboard?fecha_inicio=...&fecha_fin=...`
+- [x] `GET /api/v1/demo/setup` — empleado demo GT-01
+- [x] `POST /api/v1/payroll/periods/{id}/run` — corrida quincenal batch
+- [x] `POST /api/v1/payroll/periods/{id}/close` — recibos PDF
+- [x] `POST /api/v1/exports/sipe/{run_id}` — SIPE + conciliación GT-08
+- [x] `POST /api/v1/exports/dgi/{run_id}` — Form 03
+- [x] `POST /api/v1/employees/{id}/bank-account` + `POST /api/v1/exports/ach/{run_id}` (banco `BANCO_GENERAL`)
+- [x] `GET /api/v1/organizations/{id}/analytics/dashboard?fecha_inicio=...&fecha_fin=...`
 
 **Org demo seed:** `00000000-0000-0000-0000-000000000010`
 
@@ -171,16 +171,18 @@ storage/           # payslips/, exports/ (gitignored)
 
 | Prioridad | Item | Fase | Notas |
 |-----------|------|------|-------|
-| **P0** | Piloto end-to-end en apps srv | 4 | Checklist §3.4 |
-| **P0** | Validación contador golden tests | 0, 4, 6 | GT-01 ISR, SIPE portal CSS |
-| **P1** | Auth EN1 + tenant isolation | 1.5 | Bloquea producción multi-tenant |
-| **P1** | UI web (React o EN1) | — | Consumir API existente |
-| **P2** | Incapacidades Art. 200 | 3.5 | Fondo licencia |
-| **P2** | Sustituciones vacaciones | 5.5 | Cobertura MVP |
-| **P2** | Push automático Odoo API | 7 | Payload JSON ya listo |
-| **P2** | Validación salario mínimo | 1.5 | Decreto vigente |
-| **P3** | UI dashboard ejecutivo | 8 | API JSON lista |
-| **P3** | Dockerizar API (no solo BD) | DevOps | `docker-compose` servicio `api` |
+| ~~**P0**~~ | ~~Piloto end-to-end en apps srv~~ | 4 | ✅ Checklist §3.4 |
+| ~~**P0**~~ | ~~Validación contador golden tests~~ | 0, 4, 6 | ✅ `python scripts/golden_report.py` → `storage/reports/` |
+| ~~**P0**~~ | ~~Servicio systemd API~~ | DevOps | ✅ `scripts/install_systemd.sh` |
+| ~~**P1**~~ | ~~Auth EN1 + tenant isolation~~ | 1.5 | ✅ stub + JWT (`src/epayroll/auth/`) |
+| ~~**P1**~~ | ~~UI web (React o EN1)~~ | — | ✅ MVP estático `/app` |
+| ~~**P1**~~ | ~~UI EN1 integrada (SSO)~~ | — | ✅ OAuth + JWKS + botón EN1 en UI |
+| ~~**P2**~~ | ~~Incapacidades Art. 200~~ | 3.5 | ✅ GT-10 `time/incapacity.py` + API |
+| ~~**P2**~~ | ~~Sustituciones vacaciones~~ | 5.5 | ✅ API cobertura + sustituto |
+| ~~**P2**~~ | ~~Push automático Odoo API~~ | 7 | ✅ `POST .../odoo/journal/{id}/push` |
+| ~~**P2**~~ | ~~Validación salario mínimo~~ | 1.5 | ✅ GT-07 `compliance/minimum_wage.py` |
+| ~~**P3**~~ | ~~UI dashboard ejecutivo~~ | 8 | ✅ KPIs, alertas, pasivos, proyección liquidaciones |
+| **P3** | ~~Dockerizar API (no solo BD)~~ | DevOps | ✅ `Dockerfile` + servicio `api` en compose |
 
 ---
 
@@ -189,6 +191,13 @@ storage/           # payslips/, exports/ (gitignored)
 ```powershell
 # Tests (no requieren BD)
 python -m pytest tests/ -v
+
+# Informe golden para contador (genera storage/reports/golden_YYYYMMDD.md)
+python scripts/golden_report.py
+
+# Servicio permanente (Linux apps srv)
+sudo bash scripts/install_systemd.sh
+journalctl -u epayroll-api -f
 
 # Demo motor sin BD
 python scripts/run_payroll_demo.py
@@ -218,7 +227,11 @@ $env:DATABASE_URL = "postgresql://epayroll:epayroll@localhost:5432/epayroll"
 
 ```env
 DATABASE_URL=postgresql://epayroll:epayroll@localhost:5432/epayroll
+EPAYROLL_DB_PORT=5432
 PYTHONPATH=src
+EPAYROLL_AUTH_MODE=stub
+# Headers: X-Tenant-Id (requerido), X-Organization-Id, X-User-Id, X-Roles
+# Demo tenant seed: 00000000-0000-0000-0000-000000000001
 ```
 
 Ver `.env.example` en la raíz del repo.
@@ -231,7 +244,9 @@ Ver `.env.example` en la raíz del repo.
 |-------|-------------|
 | 2026-06-13 | Fases 3–8 implementadas (asistencia → analítica). 40 tests pass. |
 | 2026-06-13 | Intento Docker en PC local — falló (CLI no instalada). |
-| 2026-06-13 | Decisión: continuar despliegue en apps srv. Este doc creado. |
+| 2026-06-13 | Piloto end-to-end apps srv completado (puertos 5433/8001). |
+| 2026-06-13 | Sustituciones vacaciones + push Odoo API. 70 tests pass. |
+| 2026-06-13 | EN1 SSO completo: JWKS, OAuth exchange, RBAC, UI. 75 tests pass. |
 
 ---
 

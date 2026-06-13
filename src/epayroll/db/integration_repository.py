@@ -11,6 +11,7 @@ from epayroll.db.export_repository import ExportRepository
 from epayroll.integration.ach import generate_ach_export
 from epayroll.integration.models import BankAccountInfo
 from epayroll.integration.odoo import build_journal_entry, parse_odoo_employees
+from epayroll.integration.odoo_push import OdooPushError, prepare_and_push
 
 from epayroll.db.repositories import ContractRepository, EmployeeRepository
 
@@ -135,6 +136,63 @@ class IntegrationRepository:
     def build_odoo_journal(self, run_id: str, database_url: str | None = None) -> dict[str, Any]:
         bundle = self.export_repo.load_run_bundle(run_id, database_url=database_url)
         return build_journal_entry(bundle)
+
+    def push_odoo_journal(self, run_id: str, database_url: str | None = None) -> dict[str, Any]:
+        bundle = self.export_repo.load_run_bundle(run_id, database_url=database_url)
+        org_id: str | None = None
+        with get_connection(database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT pp.organization_id FROM payroll_runs pr
+                    JOIN payroll_periods pp ON pp.id = pr.payroll_period_id
+                    WHERE pr.id = %s::uuid
+                    """,
+                    (run_id,),
+                )
+                row = cur.fetchone()
+                org_id = str(row[0]) if row else None
+
+        try:
+            result = prepare_and_push(bundle)
+        except OdooPushError as e:
+            if org_id:
+                self._log_sync(org_id, "ODOO", "OUTBOUND", 0, 1, {"error": str(e)}, database_url)
+            raise
+
+        if org_id:
+            self._log_sync(
+                org_id,
+                "ODOO",
+                "OUTBOUND",
+                1,
+                0,
+                {"run_id": run_id, "odoo_response": result.get("odoo_response")},
+                database_url,
+            )
+        return result
+
+    def _log_sync(
+        self,
+        organization_id: str,
+        integracion: str,
+        direccion: str,
+        ok: int,
+        errors: int,
+        detalle: dict,
+        database_url: str | None,
+    ) -> None:
+        log_id = str(uuid.uuid4())
+        with get_connection(database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO integration_sync_log (
+                        id, organization_id, integracion, direccion, registros_ok, registros_error, detalle
+                    ) VALUES (%s::uuid, %s::uuid, %s, %s, %s, %s, %s)
+                    """,
+                    (log_id, organization_id, integracion, direccion, ok, errors, json.dumps(detalle)),
+                )
 
     def sync_odoo_employees(
         self,

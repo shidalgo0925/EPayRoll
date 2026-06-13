@@ -1,0 +1,18 @@
+{
+  "version": "1.0",
+  "vigencia_desde": "2026-01-01",
+  "referencia_legal": "Art. 200 CT — fondo licencia; subsidio CSS (validar tabla con contador)",
+  "fondo_licencia": {
+    "horas_por_26_jornadas": 12,
+    "max_horas_anuales": 144,
+    "max_acumulacion_anios": 2,
+    "horas_jornada_referencia": 8
+  },
+  "pago_incapacidad": {
+    "dias_empleador_fondo": 2,
+    "pct_empleador": "1.00",
+    "dias_css_subsidio_desde": 3,
+    "pct_css_default": "0.70"
+  },
+  "tipos": ["CSS", "FONDO_LICENCIA", "MATERNIDAD", "OTRO"]
+}
