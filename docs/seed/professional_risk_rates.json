@@ -1,0 +1,33 @@
+{
+  "version": "1.0",
+  "vigencia_desde": "2026-01-01",
+  "vigencia_hasta": null,
+  "nota": "Ejemplos ilustrativos — clasificación real viene de CSS por código actividad",
+  "items": [
+    {
+      "codigo_actividad": "ADMIN_OFICINA",
+      "descripcion": "Actividades administrativas de oficina",
+      "porcentaje_riesgo": 0.0105
+    },
+    {
+      "codigo_actividad": "COMERCIO_MINORISTA",
+      "descripcion": "Comercio al por menor",
+      "porcentaje_riesgo": 0.0210
+    },
+    {
+      "codigo_actividad": "CONSTRUCCION",
+      "descripcion": "Construcción civil",
+      "porcentaje_riesgo": 0.0450
+    },
+    {
+      "codigo_actividad": "REFRIGERACION_HVAC",
+      "descripcion": "Instalación y mantenimiento HVAC / refrigeración",
+      "porcentaje_riesgo": 0.0350
+    },
+    {
+      "codigo_actividad": "INDUSTRIA_MANUFACTURA",
+      "descripcion": "Manufactura industrial",
+      "porcentaje_riesgo": 0.0300
+    }
+  ]
+}

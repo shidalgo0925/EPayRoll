@@ -1,0 +1,139 @@
+{
+  "version": "1.0",
+  "vigencia_desde": "2026-01-01",
+  "vigencia_hasta": null,
+  "nota": "Fórmulas en lenguaje del motor — ver EPAYROLL_TECH_ARCHITECTURE.md",
+  "items": [
+    {
+      "codigo_concepto": "SALARIO_BASE",
+      "condicion_aplicacion": "dias_trabajados > 0",
+      "base_calculo": "salario_diario * dias_trabajados",
+      "unidad": "FORMULA",
+      "aplica_contratos": ["INDEFINIDO", "DEFINIDO", "OBRA", "PARCIAL"],
+      "prioridad_calculo": 1,
+      "redondeo": "CENTESIMO",
+      "activo": true
+    },
+    {
+      "codigo_concepto": "HORA_EXTRA_DIURNA",
+      "condicion_aplicacion": "horas_extra_diurnas > 0",
+      "base_calculo": "salario_hora * 1.25 * horas_extra_diurnas",
+      "unidad": "FORMULA",
+      "aplica_contratos": ["INDEFINIDO", "DEFINIDO", "OBRA", "PARCIAL"],
+      "prioridad_calculo": 2,
+      "redondeo": "CENTESIMO",
+      "referencia_legal": "Art. 33 CT ordinal 1",
+      "activo": true
+    },
+    {
+      "codigo_concepto": "HORA_EXTRA_NOCTURNA",
+      "condicion_aplicacion": "horas_extra_nocturnas > 0",
+      "base_calculo": "salario_hora * 1.50 * horas_extra_nocturnas",
+      "unidad": "FORMULA",
+      "aplica_contratos": ["INDEFINIDO", "DEFINIDO", "OBRA", "PARCIAL"],
+      "prioridad_calculo": 2,
+      "redondeo": "CENTESIMO",
+      "referencia_legal": "Art. 33 CT ordinal 2",
+      "activo": true
+    },
+    {
+      "codigo_concepto": "HORA_EXTRA_MIXTA_NOCTURNA",
+      "condicion_aplicacion": "horas_extra_mixta_nocturnas > 0",
+      "base_calculo": "salario_hora * 1.75 * horas_extra_mixta_nocturnas",
+      "unidad": "FORMULA",
+      "aplica_contratos": ["INDEFINIDO", "DEFINIDO", "OBRA", "PARCIAL"],
+      "prioridad_calculo": 2,
+      "redondeo": "CENTESIMO",
+      "referencia_legal": "Art. 33 CT ordinal 3",
+      "activo": true
+    },
+    {
+      "codigo_concepto": "RECARGO_DOMINGO",
+      "condicion_aplicacion": "horas_domingo > 0",
+      "base_calculo": "salario_hora * 0.50 * horas_domingo",
+      "unidad": "FORMULA",
+      "aplica_contratos": ["INDEFINIDO", "DEFINIDO", "OBRA", "PARCIAL"],
+      "prioridad_calculo": 3,
+      "redondeo": "CENTESIMO",
+      "referencia_legal": "Art. 48 CT",
+      "activo": true
+    },
+    {
+      "codigo_concepto": "RECARGO_FERIADO",
+      "condicion_aplicacion": "horas_feriado > 0",
+      "base_calculo": "salario_hora * 1.50 * horas_feriado",
+      "unidad": "FORMULA",
+      "aplica_contratos": ["INDEFINIDO", "DEFINIDO", "OBRA", "PARCIAL"],
+      "prioridad_calculo": 3,
+      "redondeo": "CENTESIMO",
+      "nota": "150% incluye remuneración del día; base es recargo adicional sobre jornada ordinaria",
+      "referencia_legal": "Art. 49 CT",
+      "activo": true
+    },
+    {
+      "codigo_concepto": "CSS_EMPLEADO",
+      "condicion_aplicacion": "bruto_cotizable > 0",
+      "base_calculo": "min(bruto_cotizable, tope_css) * 0.0975",
+      "unidad": "FORMULA",
+      "aplica_contratos": ["INDEFINIDO", "DEFINIDO", "OBRA", "PARCIAL"],
+      "prioridad_calculo": 6,
+      "redondeo": "CENTESIMO",
+      "referencia_legal": "Ley 51/2005",
+      "activo": true
+    },
+    {
+      "codigo_concepto": "SE_EMPLEADO",
+      "condicion_aplicacion": "bruto_cotizable_se > 0",
+      "base_calculo": "bruto_cotizable_se * 0.0125",
+      "unidad": "FORMULA",
+      "aplica_contratos": ["INDEFINIDO", "DEFINIDO", "OBRA", "PARCIAL"],
+      "prioridad_calculo": 7,
+      "redondeo": "CENTESIMO",
+      "referencia_legal": "Ley 13/1987",
+      "activo": true
+    },
+    {
+      "codigo_concepto": "ISR",
+      "condicion_aplicacion": "true",
+      "base_calculo": "motor_isr_mensual(bruto_gravable, acumulado_ytd, mes)",
+      "unidad": "MOTOR_ISR",
+      "aplica_contratos": ["INDEFINIDO", "DEFINIDO", "OBRA", "PARCIAL"],
+      "prioridad_calculo": 8,
+      "redondeo": "CENTESIMO",
+      "referencia_legal": "Art. 699-700 Código Fiscal",
+      "activo": true
+    },
+    {
+      "codigo_concepto": "CSS_EMPLEADOR",
+      "condicion_aplicacion": "bruto_cotizable > 0",
+      "base_calculo": "min(bruto_cotizable, tope_css) * tasa_css_patronal",
+      "unidad": "FORMULA",
+      "aplica_contratos": ["INDEFINIDO", "DEFINIDO", "OBRA", "PARCIAL"],
+      "prioridad_calculo": 10,
+      "redondeo": "CENTESIMO",
+      "nota": "tasa_css_patronal desde css_rates.json (13.25% vigente Ley 462)",
+      "activo": true
+    },
+    {
+      "codigo_concepto": "SE_EMPLEADOR",
+      "condicion_aplicacion": "bruto_cotizable_se > 0",
+      "base_calculo": "bruto_cotizable_se * 0.0150",
+      "unidad": "FORMULA",
+      "aplica_contratos": ["INDEFINIDO", "DEFINIDO", "OBRA", "PARCIAL"],
+      "prioridad_calculo": 10,
+      "redondeo": "CENTESIMO",
+      "activo": true
+    },
+    {
+      "codigo_concepto": "RIESGO_PROFESIONAL",
+      "condicion_aplicacion": "bruto_cotizable > 0",
+      "base_calculo": "min(bruto_cotizable, tope_css) * tasa_riesgo_empresa",
+      "unidad": "FORMULA",
+      "aplica_contratos": ["INDEFINIDO", "DEFINIDO", "OBRA", "PARCIAL"],
+      "prioridad_calculo": 10,
+      "redondeo": "CENTESIMO",
+      "nota": "tasa_riesgo_empresa desde organization_risk_classification",
+      "activo": true
+    }
+  ]
+}

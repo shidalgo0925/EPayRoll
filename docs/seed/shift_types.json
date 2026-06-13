@@ -1,0 +1,50 @@
+{
+  "version": "1.0",
+  "vigencia_desde": "2026-01-01",
+  "vigencia_hasta": null,
+  "referencia_legal": "Arts. 30-31 CT",
+  "items": [
+    {
+      "codigo": "DIURNO",
+      "descripcion": "Jornada diurna — 6:00 a 18:00",
+      "hora_inicio": "06:00",
+      "hora_fin": "18:00",
+      "tipo_jornada": "DIURNA",
+      "horas_max_dia": 8,
+      "horas_max_semana": 48,
+      "recargo_domingo": 0.50,
+      "recargo_feriado": 1.50,
+      "maximo_extras_diarias": 3.0,
+      "maximo_extras_semanales": 9.0,
+      "activo": true
+    },
+    {
+      "codigo": "NOCTURNO",
+      "descripcion": "Jornada nocturna — 18:00 a 06:00",
+      "hora_inicio": "18:00",
+      "hora_fin": "06:00",
+      "tipo_jornada": "NOCTURNA",
+      "horas_max_dia": 7,
+      "horas_max_semana": 42,
+      "recargo_domingo": 0.50,
+      "recargo_feriado": 1.50,
+      "maximo_extras_diarias": 3.0,
+      "maximo_extras_semanales": 9.0,
+      "activo": true
+    },
+    {
+      "codigo": "MIXTO",
+      "descripcion": "Jornada mixta — máx 3h en período nocturno",
+      "hora_inicio": "14:00",
+      "hora_fin": "22:00",
+      "tipo_jornada": "MIXTA",
+      "horas_max_dia": 7.5,
+      "horas_max_semana": 45,
+      "recargo_domingo": 0.50,
+      "recargo_feriado": 1.50,
+      "maximo_extras_diarias": 3.0,
+      "maximo_extras_semanales": 9.0,
+      "activo": true
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "version": "1.0",
+  "vigencia_desde": "2026-01-01",
+  "vigencia_hasta": null,
+  "referencia_legal": "Ley 13 de 1987",
+  "items": [
+    {
+      "concepto": "SE_EMPLEADO",
+      "porcentaje": 0.0125,
+      "sobre_base": "bruto_cotizable_se"
+    },
+    {
+      "concepto": "SE_EMPLEADOR",
+      "porcentaje": 0.0150,
+      "sobre_base": "bruto_cotizable_se"
+    }
+  ]
+}

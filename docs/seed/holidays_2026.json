@@ -1,0 +1,19 @@
+{
+  "version": "1.0",
+  "anio": 2026,
+  "referencia_legal": "Art. 46 CT + Ley 65/2001 días puentes",
+  "nota": "Verificar decretos de días puentes del Ejecutivo para 2026",
+  "items": [
+    { "fecha": "2026-01-01", "descripcion": "Año Nuevo", "tipo": "FERIADO_NACIONAL", "recargo_trabajar": 1.50, "es_recuperable": false },
+    { "fecha": "2026-01-09", "descripcion": "Día de los Mártires", "tipo": "FERIADO_NACIONAL", "recargo_trabajar": 1.50, "es_recuperable": false },
+    { "fecha": "2026-02-17", "descripcion": "Martes de Carnaval", "tipo": "FERIADO_NACIONAL", "recargo_trabajar": 1.50, "es_recuperable": false },
+    { "fecha": "2026-04-03", "descripcion": "Viernes Santo", "tipo": "FERIADO_NACIONAL", "recargo_trabajar": 1.50, "es_recuperable": false },
+    { "fecha": "2026-05-01", "descripcion": "Día del Trabajo", "tipo": "FERIADO_NACIONAL", "recargo_trabajar": 1.50, "es_recuperable": false },
+    { "fecha": "2026-11-03", "descripcion": "Separación de Panamá de Colombia", "tipo": "FERIADO_NACIONAL", "recargo_trabajar": 1.50, "es_recuperable": false },
+    { "fecha": "2026-11-05", "descripcion": "Día de Colón", "tipo": "FERIADO_NACIONAL", "recargo_trabajar": 1.50, "es_recuperable": false },
+    { "fecha": "2026-11-10", "descripcion": "Primer Grito de Independencia", "tipo": "FERIADO_NACIONAL", "recargo_trabajar": 1.50, "es_recuperable": false },
+    { "fecha": "2026-11-28", "descripcion": "Independencia de Panamá de España", "tipo": "FERIADO_NACIONAL", "recargo_trabajar": 1.50, "es_recuperable": false },
+    { "fecha": "2026-12-08", "descripcion": "Día de las Madres", "tipo": "FERIADO_NACIONAL", "recargo_trabajar": 1.50, "es_recuperable": false },
+    { "fecha": "2026-12-25", "descripcion": "Navidad", "tipo": "FERIADO_NACIONAL", "recargo_trabajar": 1.50, "es_recuperable": false }
+  ]
+}

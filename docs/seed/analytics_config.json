@@ -1,0 +1,11 @@
+{
+  "dias_laborables_mes": 22,
+  "horas_jornada": 8,
+  "umbrales": {
+    "rotacion_pct_anual_alerta": 15,
+    "ausentismo_pct_alerta": 5,
+    "horas_extra_promedio_mes_alerta": 20,
+    "pasivo_por_empleado_alerta": 5000
+  },
+  "proyeccion_liquidacion_causa_default": "DESPIDO_INJUSTIFICADO"
+}

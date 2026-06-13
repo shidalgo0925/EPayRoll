@@ -1,0 +1,19 @@
+{
+  "version": "1.0",
+  "vigencia_desde": "2026-01-01",
+  "nota": "Mapeo conceptos planilla -> cuentas contables Odoo — validar con contador",
+  "journal_code": "NOM",
+  "cuentas": [
+    { "concepto": "SALARIO_BASE", "cuenta_debe": "610101", "cuenta_haber": null, "tipo": "DEBE" },
+    { "concepto": "HORA_EXTRA_DIURNA", "cuenta_debe": "610102", "cuenta_haber": null, "tipo": "DEBE" },
+    { "concepto": "HORA_EXTRA_NOCTURNA", "cuenta_debe": "610102", "cuenta_haber": null, "tipo": "DEBE" },
+    { "concepto": "CSS_EMPLEADO", "cuenta_debe": null, "cuenta_haber": "210501", "tipo": "HABER" },
+    { "concepto": "SE_EMPLEADO", "cuenta_debe": null, "cuenta_haber": "210502", "tipo": "HABER" },
+    { "concepto": "ISR", "cuenta_debe": null, "cuenta_haber": "210503", "tipo": "HABER" },
+    { "concepto": "CSS_EMPLEADOR", "cuenta_debe": "610201", "cuenta_haber": "210501", "tipo": "DEBE_HABER" },
+    { "concepto": "SE_EMPLEADOR", "cuenta_debe": "610202", "cuenta_haber": "210502", "tipo": "DEBE_HABER" },
+    { "concepto": "RIESGO_PROFESIONAL", "cuenta_debe": "610203", "cuenta_haber": "210504", "tipo": "DEBE_HABER" },
+    { "concepto": "PRIMA_ANTIGUEDAD_PATRONAL", "cuenta_debe": "610204", "cuenta_haber": "210505", "tipo": "DEBE_HABER" },
+    { "concepto": "NETO_PAGAR", "cuenta_debe": null, "cuenta_haber": "110102", "tipo": "HABER" }
+  ]
+}

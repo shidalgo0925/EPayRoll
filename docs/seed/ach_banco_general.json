@@ -1,0 +1,18 @@
+{
+  "version": "1.0",
+  "banco": "BANCO_GENERAL",
+  "vigencia_desde": "2026-01-01",
+  "referencia_legal": "Formato ACH ilustrativo — validar con banco antes de produccion",
+  "formato": "TSV",
+  "separador": "\t",
+  "columnas": [
+    { "nombre": "secuencia", "fuente": "secuencia", "requerido": true },
+    { "nombre": "tipo_cuenta", "fuente": "tipo_cuenta", "requerido": true },
+    { "nombre": "numero_cuenta", "fuente": "numero_cuenta", "requerido": true },
+    { "nombre": "nombre_beneficiario", "fuente": "nombre_completo", "requerido": true },
+    { "nombre": "cedula", "fuente": "cedula", "requerido": true },
+    { "nombre": "monto", "fuente": "neto", "requerido": true },
+    { "nombre": "referencia", "fuente": "referencia", "requerido": true },
+    { "nombre": "moneda", "fuente": "constante", "valor": "USD", "requerido": true }
+  ]
+}

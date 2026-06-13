@@ -1,0 +1,9 @@
+{
+  "version": "1.0",
+  "vigencia_desde": "2026-01-01",
+  "vigencia_hasta": null,
+  "referencia_legal": "Art. 161 CT",
+  "tope_descuentos_voluntarios_pct": 0.50,
+  "conceptos_legales_obligatorios": ["CSS_EMPLEADO", "SE_EMPLEADO", "ISR"],
+  "nota": "Descuentos autorizados (préstamos, etc.) no pueden exceder 50% del salario bruto del período"
+}

@@ -1,0 +1,222 @@
+{
+  "version": "1.0",
+  "vigencia_desde": "2026-01-01",
+  "vigencia_hasta": null,
+  "items": [
+    {
+      "codigo": "SALARIO_BASE",
+      "descripcion": "Salario base contractual",
+      "tipo": "INGRESO",
+      "naturaleza": "ORDINARIO",
+      "imprime_recibo": true,
+      "acumulable_aguinaldo": true,
+      "acumulable_vacaciones": true,
+      "cotizable_css": true,
+      "cotizable_se": true,
+      "gravable_isr": true,
+      "orden_visual": 1,
+      "activo": true
+    },
+    {
+      "codigo": "HORA_EXTRA_DIURNA",
+      "descripcion": "Horas extras período diurno — Art. 33 CT (+25%)",
+      "tipo": "INGRESO",
+      "naturaleza": "EXTRAORDINARIO",
+      "imprime_recibo": true,
+      "acumulable_aguinaldo": true,
+      "acumulable_vacaciones": true,
+      "cotizable_css": true,
+      "cotizable_se": true,
+      "gravable_isr": true,
+      "orden_visual": 2,
+      "activo": true
+    },
+    {
+      "codigo": "HORA_EXTRA_NOCTURNA",
+      "descripcion": "Horas extras período nocturno — Art. 33 CT (+50%)",
+      "tipo": "INGRESO",
+      "naturaleza": "EXTRAORDINARIO",
+      "imprime_recibo": true,
+      "acumulable_aguinaldo": true,
+      "acumulable_vacaciones": true,
+      "cotizable_css": true,
+      "cotizable_se": true,
+      "gravable_isr": true,
+      "orden_visual": 3,
+      "activo": true
+    },
+    {
+      "codigo": "HORA_EXTRA_MIXTA_NOCTURNA",
+      "descripcion": "Horas extras prolongación jornada mixta nocturna — Art. 33 CT (+75%)",
+      "tipo": "INGRESO",
+      "naturaleza": "EXTRAORDINARIO",
+      "imprime_recibo": true,
+      "acumulable_aguinaldo": true,
+      "acumulable_vacaciones": true,
+      "cotizable_css": true,
+      "cotizable_se": true,
+      "gravable_isr": true,
+      "orden_visual": 4,
+      "activo": true
+    },
+    {
+      "codigo": "RECARGO_DOMINGO",
+      "descripcion": "Trabajo en domingo — Art. 48 CT (+50%)",
+      "tipo": "INGRESO",
+      "naturaleza": "EXTRAORDINARIO",
+      "imprime_recibo": true,
+      "acumulable_aguinaldo": true,
+      "acumulable_vacaciones": true,
+      "cotizable_css": true,
+      "cotizable_se": true,
+      "gravable_isr": true,
+      "orden_visual": 5,
+      "activo": true
+    },
+    {
+      "codigo": "RECARGO_FERIADO",
+      "descripcion": "Trabajo en feriado — Art. 49 CT (+150%)",
+      "tipo": "INGRESO",
+      "naturaleza": "EXTRAORDINARIO",
+      "imprime_recibo": true,
+      "acumulable_aguinaldo": true,
+      "acumulable_vacaciones": true,
+      "cotizable_css": true,
+      "cotizable_se": true,
+      "gravable_isr": true,
+      "orden_visual": 6,
+      "activo": true
+    },
+    {
+      "codigo": "DECIMO_TERCER",
+      "descripcion": "Décimo tercer mes — Decreto 19/1973",
+      "tipo": "INGRESO",
+      "naturaleza": "ORDINARIO",
+      "imprime_recibo": true,
+      "acumulable_aguinaldo": false,
+      "acumulable_vacaciones": false,
+      "cotizable_css": true,
+      "cotizable_se": false,
+      "gravable_isr": false,
+      "orden_visual": 10,
+      "activo": true
+    },
+    {
+      "codigo": "CSS_EMPLEADO",
+      "descripcion": "Cuota CSS trabajador — Ley 51/2005",
+      "tipo": "DESCUENTO",
+      "naturaleza": "NO_SALARIAL",
+      "imprime_recibo": true,
+      "orden_visual": 20,
+      "activo": true
+    },
+    {
+      "codigo": "SE_EMPLEADO",
+      "descripcion": "Seguro Educativo trabajador — Ley 13/1987",
+      "tipo": "DESCUENTO",
+      "naturaleza": "NO_SALARIAL",
+      "imprime_recibo": true,
+      "orden_visual": 21,
+      "activo": true
+    },
+    {
+      "codigo": "ISR",
+      "descripcion": "Retención Impuesto sobre la Renta — Art. 699 CF",
+      "tipo": "DESCUENTO",
+      "naturaleza": "NO_SALARIAL",
+      "imprime_recibo": true,
+      "orden_visual": 22,
+      "activo": true
+    },
+    {
+      "codigo": "CSS_EMPLEADOR",
+      "descripcion": "Aporte CSS patronal",
+      "tipo": "APORTE_EMPLEADOR",
+      "naturaleza": "NO_SALARIAL",
+      "imprime_recibo": false,
+      "orden_visual": 30,
+      "activo": true
+    },
+    {
+      "codigo": "SE_EMPLEADOR",
+      "descripcion": "Aporte Seguro Educativo patronal",
+      "tipo": "APORTE_EMPLEADOR",
+      "naturaleza": "NO_SALARIAL",
+      "imprime_recibo": false,
+      "orden_visual": 31,
+      "activo": true
+    },
+    {
+      "codigo": "RIESGO_PROFESIONAL",
+      "descripcion": "Riesgos profesionales patronal — CSS",
+      "tipo": "APORTE_EMPLEADOR",
+      "naturaleza": "NO_SALARIAL",
+      "imprime_recibo": false,
+      "orden_visual": 32,
+      "activo": true
+    },
+    {
+      "codigo": "PRIMA_ANTIGUEDAD_PATRONAL",
+      "descripcion": "Aporte fondo prima antigüedad — ~1.92%",
+      "tipo": "APORTE_EMPLEADOR",
+      "naturaleza": "NO_SALARIAL",
+      "imprime_recibo": false,
+      "orden_visual": 33,
+      "activo": true
+    },
+    {
+      "codigo": "VACACIONES_LIQUIDACION",
+      "descripcion": "Vacaciones pendientes en liquidación",
+      "tipo": "INGRESO",
+      "naturaleza": "ORDINARIO",
+      "imprime_recibo": true,
+      "orden_visual": 11,
+      "activo": true
+    },
+    {
+      "codigo": "DECIMO_PROPORCIONAL",
+      "descripcion": "Décimo proporcional en liquidación",
+      "tipo": "INGRESO",
+      "naturaleza": "ORDINARIO",
+      "imprime_recibo": true,
+      "orden_visual": 12,
+      "activo": true
+    },
+    {
+      "codigo": "PRIMA_ANTIGUEDAD",
+      "descripcion": "Prima de antigüedad — Art. 224 CT",
+      "tipo": "INGRESO",
+      "naturaleza": "ORDINARIO",
+      "imprime_recibo": true,
+      "orden_visual": 13,
+      "activo": true
+    },
+    {
+      "codigo": "INDEMNIZACION",
+      "descripcion": "Indemnización despido injustificado — Art. 225 CT",
+      "tipo": "INGRESO",
+      "naturaleza": "EXTRAORDINARIO",
+      "imprime_recibo": true,
+      "orden_visual": 14,
+      "activo": true
+    },
+    {
+      "codigo": "PREAVISO_DEDUCCION",
+      "descripcion": "Deducción preaviso no cumplido — Art. 222 CT",
+      "tipo": "DESCUENTO",
+      "naturaleza": "NO_SALARIAL",
+      "imprime_recibo": true,
+      "orden_visual": 23,
+      "activo": true
+    },
+    {
+      "codigo": "DESCUENTO_VOLUNTARIO",
+      "descripcion": "Descuento autorizado — Art. 161 CT",
+      "tipo": "DESCUENTO",
+      "naturaleza": "NO_SALARIAL",
+      "imprime_recibo": true,
+      "orden_visual": 24,
+      "activo": true
+    }
+  ]
+}

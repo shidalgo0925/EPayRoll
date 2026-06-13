@@ -1,0 +1,52 @@
+{
+  "version": "1.0",
+  "vigencia_desde": "2025-04-01",
+  "vigencia_hasta": "2027-02-28",
+  "nota": "Cuota patronal 13.25% — Ley 462/2025. Validar tope mensual con CSS.",
+  "tope_mensual": null,
+  "items": [
+    {
+      "concepto": "CUOTA_CSS_EMPLEADO",
+      "porcentaje_empleado": 0.0975,
+      "porcentaje_empleador": 0,
+      "sobre_base": "bruto_cotizable",
+      "referencia_legal": "Ley 51/2005"
+    },
+    {
+      "concepto": "CUOTA_CSS_EMPLEADOR",
+      "porcentaje_empleado": 0,
+      "porcentaje_empleador": 0.1325,
+      "sobre_base": "bruto_cotizable",
+      "referencia_legal": "Ley 462/2025 — temporal hasta feb/2027"
+    },
+    {
+      "concepto": "CUOTA_CSS_EMPLEADOR_BASE",
+      "porcentaje_empleado": 0,
+      "porcentaje_empleador": 0.1225,
+      "sobre_base": "bruto_cotizable",
+      "vigencia_desde": "1900-01-01",
+      "vigencia_hasta": "2025-03-31",
+      "referencia_legal": "Ley 51/2005 tasa base"
+    },
+    {
+      "concepto": "DECIMO_CSS",
+      "porcentaje_empleado": 0.0725,
+      "porcentaje_empleador": 0.0725,
+      "sobre_base": "monto_decimo",
+      "nota": "Décimo cotiza CSS reducido; no SE ni ISR",
+      "referencia_legal": "Decreto 19/1973 + reglamento CSS"
+    },
+    {
+      "concepto": "PRIMA_ANTIGUEDAD_PATRONAL",
+      "porcentaje_empleado": 0,
+      "porcentaje_empleador": 0.0192,
+      "sobre_base": "bruto_cotizable",
+      "referencia_legal": "Fondo garantía prima antigüedad"
+    }
+  ],
+  "riesgo_profesional_rango": {
+    "minimo": 0.0105,
+    "maximo": 0.0567,
+    "nota": "Por actividad económica — ver professional_risk_rates.json"
+  }
+}

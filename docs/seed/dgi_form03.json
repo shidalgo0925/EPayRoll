@@ -1,0 +1,13 @@
+{
+  "version": "1.0",
+  "vigencia_desde": "2026-01-01",
+  "formulario": "FORM_03",
+  "referencia_legal": "DGI e-Tax 2.0 — retenciones ISR",
+  "columnas": [
+    { "nombre": "cedula", "fuente": "cedula", "requerido": true },
+    { "nombre": "nombre_completo", "fuente": "nombre_completo", "requerido": true },
+    { "nombre": "ingreso_gravable", "fuente": "bruto", "requerido": true },
+    { "nombre": "isr_retenido", "fuente": "concepto", "concepto": "ISR", "requerido": true },
+    { "nombre": "periodo", "fuente": "periodo", "requerido": true }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "version": "1.0",
+  "vigencia_desde": "2026-01-01",
+  "vigencia_hasta": null,
+  "referencia_legal": "Arts. 47, 52-54, 57, 59 CT",
+  "meses_por_periodo": 11,
+  "dias_por_periodo": 30,
+  "max_periodos_acumulados": 2,
+  "min_dias_primer_periodo": 15,
+  "alerta_planificacion_dias": 60,
+  "dias_sin_planificacion_alerta": 30,
+  "nota": "Art. 59: max 2 periodos (60 dias). Art. 57: planificar con 60 dias de anticipacion."
+}

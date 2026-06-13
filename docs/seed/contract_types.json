@@ -1,0 +1,48 @@
+{
+  "version": "1.0",
+  "vigencia_desde": "1995-08-12",
+  "vigencia_hasta": null,
+  "nota": "Seed inicial — validar con contador",
+  "items": [
+    {
+      "codigo": "INDEFINIDO",
+      "descripcion": "Contrato por tiempo indefinido — Art. 75 CT",
+      "genera_prima_antiguedad": true,
+      "genera_vacaciones": true,
+      "genera_decimo_tercer": true,
+      "proporcional_prestaciones": true,
+      "genera_fondo_cesantia": true,
+      "activo": true
+    },
+    {
+      "codigo": "DEFINIDO",
+      "descripcion": "Contrato por tiempo definido — Art. 75 CT",
+      "genera_prima_antiguedad": false,
+      "genera_vacaciones": true,
+      "genera_decimo_tercer": true,
+      "proporcional_prestaciones": true,
+      "genera_fondo_cesantia": false,
+      "activo": true
+    },
+    {
+      "codigo": "OBRA",
+      "descripcion": "Contrato por obra determinada",
+      "genera_prima_antiguedad": false,
+      "genera_vacaciones": true,
+      "genera_decimo_tercer": true,
+      "proporcional_prestaciones": true,
+      "genera_fondo_cesantia": false,
+      "activo": true
+    },
+    {
+      "codigo": "PARCIAL",
+      "descripcion": "Jornada parcial / tiempo parcial",
+      "genera_prima_antiguedad": true,
+      "genera_vacaciones": true,
+      "genera_decimo_tercer": true,
+      "proporcional_prestaciones": true,
+      "genera_fondo_cesantia": true,
+      "activo": true
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "version": "1.0",
+  "vigencia_desde": "1973-01-01",
+  "vigencia_hasta": null,
+  "referencia_legal": "Decreto 19 de 1973",
+  "fechas_pago": [
+    { "mes": 4, "dia": 15, "nombre": "Primera partida" },
+    { "mes": 8, "dia": 15, "nombre": "Segunda partida" },
+    { "mes": 12, "dia": 15, "nombre": "Tercera partida" }
+  ],
+  "meses_acumulacion_por_partida": {
+    "4": { "desde_mes": 12, "hasta_mes": 3, "nota": "Dic-Mar del año anterior/actual" },
+    "8": { "desde_mes": 4, "hasta_mes": 7 },
+    "12": { "desde_mes": 8, "hasta_mes": 11 }
+  },
+  "formula": "sum(salarios_cotizables_periodo) / 12",
+  "cotiza_css": true,
+  "tasa_css_decimo": 0.0725,
+  "cotiza_se": false,
+  "gravable_isr": false,
+  "proporcional_en_liquidacion": true
+}
