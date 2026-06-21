@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "referencia": "docs/Planilla_modelo.xlsx — hoja PLANILLA CAJA DE SEGUROS SOCIAL",
+  "referencia": "Planilla quincenal CSS — definición en seed JSON + UI web",
   "columnas": [
     { "key": "ficha", "titulo": "FICHA", "tipo": "texto" },
     { "key": "nombre_completo", "titulo": "NOMBRE Y APELLIDO", "tipo": "texto" },

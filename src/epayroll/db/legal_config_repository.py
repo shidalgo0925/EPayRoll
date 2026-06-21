@@ -122,6 +122,33 @@ class LegalConfigRepository:
                 row = cur.fetchone()
         return self._account_row(row)
 
+    def resolve_rates_for_payroll(
+        self, organization_id: str, as_of: date | None = None, database_url: str | None = None
+    ) -> dict[str, Decimal]:
+        """Defaults globales + override organization_legal_rates por compañía."""
+        _ = as_of
+        rates: dict[str, Decimal] = {
+            "tasa_css_empleado": Decimal("0.0975"),
+            "tasa_css_patronal": Decimal("0.1325"),
+            "tasa_se_empleado": Decimal("0.0125"),
+            "tasa_se_patronal": Decimal("0.0150"),
+        }
+        for row in self.list_rates(organization_id, database_url=database_url):
+            codigo = row["codigo"]
+            if row.get("porcentaje_empleado") is not None:
+                pct = Decimal(str(row["porcentaje_empleado"]))
+                if codigo == "CSS_EMPLEADO":
+                    rates["tasa_css_empleado"] = pct
+                elif codigo == "SE_EMPLEADO":
+                    rates["tasa_se_empleado"] = pct
+            if row.get("porcentaje_empleador") is not None:
+                pct = Decimal(str(row["porcentaje_empleador"]))
+                if codigo == "CSS_EMPLEADOR":
+                    rates["tasa_css_patronal"] = pct
+                elif codigo == "SE_EMPLEADOR":
+                    rates["tasa_se_patronal"] = pct
+        return rates
+
     def seed_org_defaults(self, organization_id: str, database_url: str | None = None) -> None:
         meta = _load_planilla_meta()
         for item in meta.get("tasas_default_org", []):
@@ -193,6 +220,9 @@ class PlanillaViewRepository:
                     raise ValueError("Corrida no encontrada")
 
                 org_id = str(header[0])
+                period_tipo = header[4]
+                es_quincena = period_tipo == "QUINCENAL"
+                dias_pago_nominal = Decimal("15") if es_quincena else Decimal("30")
                 cur.execute(
                     """
                     SELECT pes.employee_id, e.ficha, e.nombres, e.apellidos, e.telefono, e.cedula,
@@ -257,7 +287,7 @@ class PlanillaViewRepository:
             sal_quincenal = sal_mensual / Decimal("2") if es_quincenal else sal_mensual
             lines = concepts.get(eid, {})
             adj = adj_rows.get(eid)
-            dias_trab = Decimal(str(adj[1])) if adj and adj[1] is not None else Decimal("15")
+            dias_trab = Decimal(str(adj[1])) if adj and adj[1] is not None else dias_pago_nominal
             dias_desc = Decimal(str(adj[2])) if adj else Decimal("0")
             monto_desc_dias = Decimal(str(adj[3])) if adj else Decimal("0")
             dev_isr = Decimal(str(adj[4])) if adj else Decimal("0")
@@ -266,7 +296,11 @@ class PlanillaViewRepository:
             desc_banco = Decimal(str(adj[7])) if adj else Decimal("0")
             saldo_prest = Decimal(str(adj[8])) if adj else Decimal("0")
 
-            sal_cot = Decimal(str(row[6]))
+            sal_cot = lines.get("SALARIO_BASE", Decimal(str(row[6])))
+            sal_diario = sal_mensual / Decimal("30")
+            if monto_desc_dias == 0 and dias_desc > 0:
+                monto_desc_dias = (sal_diario * dias_desc).quantize(Decimal("0.01"))
+            descuento_ya_en_bruto = dias_desc > 0 and dias_trab < dias_pago_nominal
             css_emp = lines.get("CSS_EMPLEADO", Decimal("0"))
             se_emp = lines.get("SE_EMPLEADO", Decimal("0"))
             isr = lines.get("ISR", Decimal("0"))
@@ -276,11 +310,12 @@ class PlanillaViewRepository:
             riesgo = lines.get("RIESGO_PROFESIONAL", Decimal("0"))
             prima = lines.get("PRIMA_ANTIGUEDAD_PATRONAL", Decimal("0"))
             gastos = css_pat + se_pat + riesgo + prima
-            total_desc = cpp + desc_prest + desc_banco + monto_desc_dias - dev_isr
+            monto_desc_en_total = Decimal("0") if descuento_ya_en_bruto else monto_desc_dias
+            total_desc = cpp + desc_prest + desc_banco + monto_desc_en_total - dev_isr
             cancelacion = sal_cot - total_desc
             total_cpp = gastos + cpp
 
-            dias_pago = lines.get("SALARIO_BASE", sal_quincenal)
+            dias_pago = dias_pago_nominal
             item = {
                 "employee_id": eid,
                 "ficha": row[1] or str(idx),
@@ -293,6 +328,7 @@ class PlanillaViewRepository:
                 "dias_trabajados": str(dias_trab),
                 "dias_descuento": str(dias_desc),
                 "monto_desc_dias": str(monto_desc_dias),
+                "descuento_ya_en_salario": descuento_ya_en_bruto,
                 "dev_isr": str(dev_isr),
                 "salario_cotizable": str(sal_cot),
                 "css_empleado": str(css_emp),

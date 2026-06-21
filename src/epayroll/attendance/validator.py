@@ -29,11 +29,16 @@ def _parse_time(value: Any) -> time | None:
 
 def normalize_fact_row(raw: dict[str, Any]) -> dict[str, Any]:
     """Normaliza claves CSV/API a formato interno."""
+    turno_val = (raw.get("turno") or raw.get("shift") or "").strip()
+    if not turno_val:
+        he = raw.get("hora_entrada")
+        hs = raw.get("hora_salida")
+        turno_val = "DIURNO" if (he or hs) else None
     return {
         "cedula": (raw.get("cedula") or raw.get("identificacion") or "").strip() or None,
         "employee_id": (raw.get("employee_id") or "").strip() or None,
         "fecha": raw.get("fecha"),
-        "turno": (raw.get("turno") or raw.get("shift") or "DIURNO").strip(),
+        "turno": turno_val,
         "hora_entrada": _parse_time(raw.get("hora_entrada")),
         "hora_salida": _parse_time(raw.get("hora_salida")),
         "descanso_minutos": int(raw.get("descanso_minutos") or 0),
@@ -85,9 +90,12 @@ def validate_fact_row(
 
     no_trabajo = data["ausencia"] or data["vacaciones"] or data["incapacidad"]
     if not no_trabajo:
-        if not data["hora_entrada"]:
+        vacio = not data["hora_entrada"] and not data["hora_salida"]
+        if vacio:
+            pass
+        elif not data["hora_entrada"]:
             errors.append("hora_entrada requerida si no es ausencia/vacaciones/incapacidad")
-        if not data["hora_salida"]:
+        elif not data["hora_salida"]:
             errors.append("hora_salida requerida si no es ausencia/vacaciones/incapacidad")
         elif data["hora_entrada"] and data["hora_salida"] and data["hora_salida"] <= data["hora_entrada"]:
             errors.append("hora_salida debe ser posterior a hora_entrada")

@@ -66,6 +66,34 @@ def test_planilla_view_after_run(planilla_client):
     assert "total_cpp_prest" in keys
 
 
+def test_planilla_export_xlsx_and_pdf(planilla_client):
+    setup = planilla_client.get("/api/v1/demo/setup")
+    assert setup.status_code == 200
+    data = setup.json()
+    org = data["organization_id"]
+    emp_id = data["employee_id"]
+    period_id = data.get("payroll_period_id")
+    if not period_id:
+        periods = planilla_client.get(f"/api/v1/organizations/{org}/payroll-periods")
+        period_id = periods.json()[0]["id"]
+    run = planilla_client.post(
+        f"/api/v1/payroll/periods/{period_id}/run",
+        json={"use_attendance": False, "dias_trabajados": 15, "employee_ids": [emp_id]},
+    )
+    assert run.status_code == 200, run.text
+    run_id = run.json()["run_id"]
+
+    xlsx = planilla_client.get(f"/api/v1/payroll/runs/{run_id}/planilla/export.xlsx")
+    assert xlsx.status_code == 200, xlsx.text
+    assert "spreadsheetml" in xlsx.headers.get("content-type", "")
+    assert len(xlsx.content) > 500
+
+    pdf = planilla_client.get(f"/api/v1/payroll/runs/{run_id}/planilla/export.pdf")
+    assert pdf.status_code == 200, pdf.text
+    assert pdf.headers.get("content-type") == "application/pdf"
+    assert pdf.content[:4] == b"%PDF"
+
+
 def test_legal_config_seed(planilla_client):
     org = "00000000-0000-0000-0000-000000000010"
     r = planilla_client.post(f"/api/v1/organizations/{org}/legal/seed-defaults")

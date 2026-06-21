@@ -106,3 +106,35 @@ def test_payroll_periods_list(crud_client):
     r = crud_client.get(f"/api/v1/organizations/{org}/payroll-periods")
     assert r.status_code == 200
     assert isinstance(r.json(), list)
+
+
+def test_payroll_period_crud(crud_client):
+    org = "00000000-0000-0000-0000-000000000010"
+    r = crud_client.post(
+        f"/api/v1/organizations/{org}/payroll-periods",
+        json={
+            "fecha_inicio": "2026-08-01",
+            "fecha_fin": "2026-08-15",
+            "fecha_pago": "2026-08-16",
+            "tipo": "QUINCENAL",
+        },
+    )
+    assert r.status_code == 200, r.text
+    period_id = r.json()["payroll_period_id"]
+
+    r2 = crud_client.get(f"/api/v1/payroll/periods/{period_id}")
+    assert r2.status_code == 200
+    assert r2.json()["fecha_inicio"] == "2026-08-01"
+
+    r3 = crud_client.patch(
+        f"/api/v1/payroll/periods/{period_id}",
+        json={"fecha_pago": "2026-08-17"},
+    )
+    assert r3.status_code == 200
+    assert r3.json()["fecha_pago"] == "2026-08-17"
+
+    r4 = crud_client.delete(f"/api/v1/payroll/periods/{period_id}")
+    assert r4.status_code == 204
+
+    r5 = crud_client.get(f"/api/v1/payroll/periods/{period_id}")
+    assert r5.status_code == 404

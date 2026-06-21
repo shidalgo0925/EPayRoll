@@ -44,12 +44,24 @@ def test_validate_ausencia_sin_horas():
     assert row["ausencia"] is True
 
 
-def test_validate_missing_hours():
+def test_validate_empty_template_ok():
     _, errors = validate_fact_row(
         {"cedula": "8-888-8888", "fecha": "2026-06-16"},
         employee_id="00000000-0000-0000-0000-000000000001",
     )
-    assert "hora_entrada requerida" in errors[0]
+    assert errors == []
+
+
+def test_validate_partial_hours_error():
+    _, errors = validate_fact_row(
+        {
+            "cedula": "8-888-8888",
+            "fecha": "2026-06-16",
+            "hora_entrada": "08:00",
+        },
+        employee_id="00000000-0000-0000-0000-000000000001",
+    )
+    assert any("hora_salida" in e for e in errors)
 
 
 def test_normalize_bool_variants():

@@ -8,6 +8,7 @@ from typing import Any
 from epayroll.db.attendance_repository import AttendanceRepository
 from epayroll.db.attendance_facts_repository import AttendanceFactsRepository
 from epayroll.db.incapacity_repository import IncapacityRepository
+from epayroll.db.legal_config_repository import LegalConfigRepository
 from epayroll.db.config_loader import load_config
 from epayroll.db.repositories import ContractRepository, EmployeeRepository, PayrollRepository
 from epayroll.engine.context import PayrollInput
@@ -35,6 +36,7 @@ class PayrollService:
         employees_repo: EmployeeRepository | None = None,
         attendance_repo: AttendanceRepository | None = None,
         incapacity_repo: IncapacityRepository | None = None,
+        legal_config_repo: LegalConfigRepository | None = None,
     ) -> None:
         self.payroll_repo = payroll_repo or PayrollRepository()
         self.contracts_repo = contracts_repo or ContractRepository()
@@ -42,6 +44,7 @@ class PayrollService:
         self.attendance_repo = attendance_repo or AttendanceRepository()
         self.attendance_facts_repo = AttendanceFactsRepository()
         self.incapacity_repo = incapacity_repo or IncapacityRepository()
+        self.legal_config_repo = legal_config_repo or LegalConfigRepository()
 
     def build_payroll_input(
         self,
@@ -59,6 +62,8 @@ class PayrollService:
         org_id = period["organization_id"]
         as_of = period["fecha_fin"]
         riesgo, tasa_css = self.payroll_repo.get_org_rates(org_id, as_of)
+        org_rates = self.legal_config_repo.resolve_rates_for_payroll(org_id, as_of)
+        tasa_css = org_rates.get("tasa_css_patronal", tasa_css)
         config = load_config(as_of=as_of)
 
         mes = overrides.mes if overrides.mes is not None else period["fecha_fin"].month
@@ -69,13 +74,30 @@ class PayrollService:
         )
 
         att_fields: dict[str, Decimal] = {}
+        att_meta: dict[str, Any] = {}
         incapacity_meta: dict[str, Any] | None = None
         f_ini = period["fecha_inicio"]
         f_fin = period["fecha_fin"]
         if use_attendance:
-            f_ini, f_fin = self.attendance_repo.get_period_dates(payroll_period_id)
-            summary = self.attendance_repo.calculate_period(employee_id, f_ini, f_fin)
-            att_fields = self.attendance_repo.to_payroll_input_fields(summary)
+            att = self.attendance_facts_repo.summarize_employee_for_payroll(
+                org_id,
+                employee_id,
+                f_ini,
+                f_fin,
+                es_quincena=es_quincena,
+            )
+            att_fields = {
+                "dias_trabajados": att["dias_trabajados"],
+                "horas_extra_diurnas": att["horas_extra_diurnas"],
+                "horas_extra_nocturnas": att["horas_extra_nocturnas"],
+                "horas_extra_mixta_nocturnas": att["horas_extra_mixta_nocturnas"],
+                "horas_domingo": att["horas_domingo"],
+                "horas_feriado": att["horas_feriado"],
+            }
+            att_meta = {
+                "ausencias": att["ausencias"],
+                "vacaciones": att["vacaciones"],
+            }
 
         inc_impact = self.incapacity_repo.calculate_period_impact(
             employee_id, f_ini, f_fin, contract.salario_base
@@ -105,6 +127,9 @@ class PayrollService:
             horas_domingo=att_fields.get("horas_domingo", overrides.horas_domingo),
             horas_feriado=att_fields.get("horas_feriado", overrides.horas_feriado),
             tasa_css_patronal=tasa_css,
+            tasa_css_empleado=org_rates["tasa_css_empleado"],
+            tasa_se_empleado=org_rates["tasa_se_empleado"],
+            tasa_se_patronal=org_rates["tasa_se_patronal"],
             tasa_riesgo_empresa=riesgo,
             tasa_prima_antiguedad_patronal=config.tasa_prima_antiguedad_patronal,
             acumulado_isr_ytd=ytd["isr_retenido"],
@@ -113,6 +138,8 @@ class PayrollService:
         )
         if incapacity_meta is not None:
             inp.metadata["incapacity"] = incapacity_meta
+        if att_meta:
+            inp.metadata["attendance"] = att_meta
         return inp
 
     def run_period(

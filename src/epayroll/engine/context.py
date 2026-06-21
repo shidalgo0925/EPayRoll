@@ -27,6 +27,9 @@ class PayrollInput:
     acumulado_gravable_ytd: Decimal = Decimal("0")
 
     tasa_css_patronal: Decimal = Decimal("0.1325")
+    tasa_css_empleado: Decimal = Decimal("0.0975")
+    tasa_se_empleado: Decimal = Decimal("0.0125")
+    tasa_se_patronal: Decimal = Decimal("0.0150")
     tasa_riesgo_empresa: Decimal = Decimal("0.0105")
     tasa_prima_antiguedad_patronal: Decimal = Decimal("0.0192")
     tope_css: Decimal | None = None
@@ -80,6 +83,9 @@ class PayrollContext:
             "acumulado_ytd": inp.acumulado_gravable_ytd,
             "mes": inp.mes,
             "tasa_css_patronal": inp.tasa_css_patronal,
+            "tasa_css_empleado": inp.tasa_css_empleado,
+            "tasa_se_empleado": inp.tasa_se_empleado,
+            "tasa_se_patronal": inp.tasa_se_patronal,
             "tasa_riesgo_empresa": inp.tasa_riesgo_empresa,
             "tasa_prima_antiguedad_patronal": inp.tasa_prima_antiguedad_patronal,
             "tope_css": tope,

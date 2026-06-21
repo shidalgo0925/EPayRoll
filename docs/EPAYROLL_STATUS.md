@@ -1,6 +1,6 @@
 # EPayRoll — Estado actual y continuación
 
-**Última actualización:** 2026-06-13  
+**Última actualización:** 2026-06-21  
 **Workspace:** `EPayRoll` — Easy Technology Services / EN1  
 **Documento vivo:** leer esto al retomar el proyecto (PC local, apps srv o Cursor Remote SSH).
 
@@ -14,8 +14,9 @@ Padre: [EPAYROLL_MASTER_PLAN.md](./EPAYROLL_MASTER_PLAN.md) · Plan de fases: [E
 |------|--------|
 | **MVP backend (Fases 0–8)** | ✅ Código completo |
 | **Tests unitarios** | ✅ 75 passed, 1 skipped (`test_db_config` integración BD) |
-| **BD + migraciones** | ✅ 9 migraciones SQL (`001`–`009`) |
-| **Piloto end-to-end con BD** | ✅ Completado en apps srv (2026-06-13) |
+| **BD + migraciones** | ✅ 12 migraciones SQL (`001`–`012`) |
+| **Producción** | ✅ https://eplanilla.etsrv.site/app/ |
+| **Git** | ✅ `git@github.com:shidalgo0925/EPayRoll.git` (main) |
 | **Próximo paso operativo** | SIPE portal CSS · validación contador |
 | **Próximo paso producto** | SIPE portal CSS · post-MVP operativo |
 | **Al final del roadmap** | Validación contador — `python scripts/golden_report.py` (GT-01…GT-10, firma ISR/SIPE) |
@@ -153,6 +154,10 @@ storage/           # payslips/, exports/ (gitignored)
 | `006_payroll.sql` | Períodos, corridas, líneas, ISR YTD |
 | `007_benefits_compliance.sql` | Vacaciones, décimo, liquidaciones, exports |
 | `008_integrations.sql` | Cuentas bancarias, sync Odoo |
+| `009_vacation_substitutions.sql` | Sustitutos vacaciones |
+| `010_planilla_operational.sql` | Ficha, ajustes corrida, tasas/cuentas org |
+| `011_attendance_facts.sql` | Tabla estándar asistencia |
+| `012_rules_org_rates.sql` | Reglas motor con tasas variables |
 
 ### Seeds JSON clave
 
@@ -187,6 +192,10 @@ storage/           # payslips/, exports/ (gitignored)
 | ~~**P3**~~ | ~~Dockerizar API~~ | DevOps | ✅ `Dockerfile` + compose |
 | ~~**P1**~~ | ~~UI liquidaciones~~ | 4 | ✅ Pantalla `/app` — GT-05/GT-06 |
 | ~~**P1**~~ | ~~Operación multi-empleado~~ | 4 | ✅ Alta + contrato, corrida batch multi-emp |
+| ~~**P1**~~ | ~~Planilla operador (26 cols)~~ | 4 | ✅ Vista web + ajustes inline |
+| ~~**P1**~~ | ~~Asistencia estándar (facts table)~~ | 3 | ✅ CSV/API + UI + use_attendance |
+| ~~**P1**~~ | ~~Tasas legales por org en motor~~ | 2 | ✅ `organization_legal_rates` + reglas variables |
+| **P2** | Planilla honorarios (sin nómina CSS) | 4 | ❌ |
 | **P2** | SIPE portal CSS | 6 | Prueba en ambiente CSS |
 
 ---
@@ -251,7 +260,7 @@ Ver `.env.example` en la raíz del repo.
 | 2026-06-13 | Intento Docker en PC local — falló (CLI no instalada). |
 | 2026-06-13 | Piloto end-to-end apps srv completado (puertos 5433/8001). |
 | 2026-06-13 | Sustituciones vacaciones + push Odoo API. 70 tests pass. |
-| 2026-06-21 | Planilla operador: vista 26 cols, config legal por org, export Excel, ficha/teléfono. |
+| 2026-06-21 | Planilla operador: vista 26 cols, config legal por org, ficha/teléfono. Sin export Excel — solo UI web. |
 
 ---
 

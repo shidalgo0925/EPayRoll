@@ -152,11 +152,12 @@ class AnalyticsRepository:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT e.id, e.nombres, e.apellidos, c.fecha_inicio, c.salario_base
+                    SELECT DISTINCT ON (e.id)
+                           e.id, e.nombres, e.apellidos, c.fecha_inicio, c.salario_base
                     FROM employees e
                     JOIN contracts c ON c.employee_id = e.id AND c.estado = 'ACTIVO'
                     WHERE e.organization_id = %s::uuid AND e.activo = true
-                    ORDER BY e.apellidos, e.nombres
+                    ORDER BY e.id, c.fecha_inicio DESC, c.created_at DESC
                     """,
                     (organization_id,),
                 )
@@ -171,6 +172,20 @@ class AnalyticsRepository:
             }
             for r in rows
         ]
+
+    def _count_active_employees(
+        self, organization_id: str, database_url: str | None
+    ) -> int:
+        with get_connection(database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT COUNT(*) FROM employees
+                    WHERE organization_id = %s::uuid AND activo = true
+                    """,
+                    (organization_id,),
+                )
+                return int(cur.fetchone()[0])
 
     def _build_projection_inputs(
         self,
@@ -211,7 +226,7 @@ class AnalyticsRepository:
     ) -> dict[str, Any]:
         config = load_analytics_config()
         employees = self._fetch_active_employees(organization_id, database_url)
-        empleados_activos = len(employees)
+        empleados_activos = self._count_active_employees(organization_id, database_url)
 
         with get_connection(database_url) as conn:
             with conn.cursor() as cur:

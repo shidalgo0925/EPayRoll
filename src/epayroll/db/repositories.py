@@ -299,6 +299,51 @@ class ContractRepository:
                     return None
                 return ContractRecord(str(row[0]), str(row[1]), row[2], row[3], row[4], row[5])
 
+    def upsert_active(
+        self,
+        employee_id: str,
+        contract_type_codigo: str,
+        salario_base: Decimal,
+        fecha_inicio: date,
+        forma_pago: str = "QUINCENAL",
+        categoria_salario_minimo: str | None = None,
+        database_url: str | None = None,
+    ) -> ContractRecord:
+        """Crea o actualiza el contrato activo del empleado."""
+        validate_salary_base(salario_base, categoria_salario_minimo, fecha_inicio)
+        existing = self.get_active(employee_id, database_url=database_url)
+        if existing:
+            with get_connection(database_url) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        UPDATE contracts
+                        SET salario_base = %s,
+                            forma_pago = %s::payment_frequency,
+                            fecha_inicio = %s,
+                            updated_at = now()
+                        WHERE id = %s::uuid
+                        """,
+                        (salario_base, forma_pago, fecha_inicio, existing.id),
+                    )
+            return ContractRecord(
+                existing.id,
+                employee_id,
+                existing.contract_type_codigo,
+                salario_base,
+                forma_pago,
+                "ACTIVO",
+            )
+        return self.create(
+            employee_id,
+            contract_type_codigo,
+            salario_base,
+            fecha_inicio,
+            forma_pago=forma_pago,
+            categoria_salario_minimo=categoria_salario_minimo,
+            database_url=database_url,
+        )
+
 
 class PayrollRepository:
     def create_period(
@@ -423,6 +468,86 @@ class PayrollRepository:
                     (estado, payroll_period_id),
                 )
 
+    def update_period(
+        self,
+        payroll_period_id: str,
+        *,
+        fecha_inicio: date | None = None,
+        fecha_fin: date | None = None,
+        fecha_pago: date | None = None,
+        tipo: str | None = None,
+        database_url: str | None = None,
+    ) -> dict[str, Any]:
+        period = self.get_period(payroll_period_id, database_url=database_url)
+        if period["estado"] != "BORRADOR":
+            raise ValueError("Solo se pueden editar períodos en estado BORRADOR")
+
+        fields: list[str] = []
+        params: list[Any] = []
+        if fecha_inicio is not None:
+            fields.append("fecha_inicio = %s")
+            params.append(fecha_inicio)
+        if fecha_fin is not None:
+            fields.append("fecha_fin = %s")
+            params.append(fecha_fin)
+        if fecha_pago is not None:
+            fields.append("fecha_pago = %s")
+            params.append(fecha_pago)
+        if tipo is not None:
+            fields.append("tipo = %s::payroll_period_type")
+            params.append(tipo)
+        if not fields:
+            return period
+
+        params.append(payroll_period_id)
+        with get_connection(database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"UPDATE payroll_periods SET {', '.join(fields)} WHERE id = %s::uuid",
+                    params,
+                )
+        return self.get_period(payroll_period_id, database_url=database_url)
+
+    def delete_period(self, payroll_period_id: str, database_url: str | None = None) -> None:
+        self.get_period(payroll_period_id, database_url=database_url)
+        with get_connection(database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    DELETE FROM sipe_exports
+                    WHERE payroll_run_id IN (
+                        SELECT id FROM payroll_runs WHERE payroll_period_id = %s::uuid
+                    )
+                    """,
+                    (payroll_period_id,),
+                )
+                cur.execute(
+                    """
+                    DELETE FROM dgi_exports
+                    WHERE payroll_run_id IN (
+                        SELECT id FROM payroll_runs WHERE payroll_period_id = %s::uuid
+                    )
+                    """,
+                    (payroll_period_id,),
+                )
+                cur.execute(
+                    """
+                    DELETE FROM bank_exports
+                    WHERE payroll_run_id IN (
+                        SELECT id FROM payroll_runs WHERE payroll_period_id = %s::uuid
+                    )
+                    """,
+                    (payroll_period_id,),
+                )
+                cur.execute(
+                    "DELETE FROM payroll_runs WHERE payroll_period_id = %s::uuid",
+                    (payroll_period_id,),
+                )
+                cur.execute(
+                    "DELETE FROM payroll_periods WHERE id = %s::uuid",
+                    (payroll_period_id,),
+                )
+
     def close_period(
         self,
         payroll_period_id: str,
@@ -453,6 +578,9 @@ class PayrollRepository:
 
         payslip_repo = PayslipRepository()
         payslips = payslip_repo.generate_all_for_run(resolved_run, database_url=database_url)
+        self._persist_period_close_snapshot(
+            payroll_period_id, resolved_run, org_id, period, database_url=database_url
+        )
         self.set_period_status(payroll_period_id, "CERRADO", database_url=database_url)
 
         return {
@@ -461,7 +589,109 @@ class PayrollRepository:
             "estado": "CERRADO",
             "payslips_generated": len(payslips),
             "payslips": payslips,
+            "acumulados_guardados": True,
         }
+
+    def _persist_period_close_snapshot(
+        self,
+        payroll_period_id: str,
+        run_id: str,
+        org_id: str,
+        period: dict[str, Any],
+        database_url: str | None = None,
+    ) -> None:
+        """Congela la corrida oficial y guarda histórico por empleado (liquidación, ISR, décimo)."""
+        as_of = period["fecha_fin"]
+        anio = as_of.year
+        mes = as_of.month
+        with get_connection(database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE payroll_periods
+                    SET cerrado_run_id = %s::uuid, cerrado_at = now()
+                    WHERE id = %s::uuid
+                    """,
+                    (run_id, payroll_period_id),
+                )
+                cur.execute(
+                    """
+                    INSERT INTO employee_payroll_acumulado (
+                        organization_id, employee_id, payroll_period_id, payroll_run_id,
+                        anio, mes, bruto, neto, dias_trabajados, dias_ausencia,
+                        dias_vacaciones, monto_desc_ausencia, isr_retenido, css_empleado,
+                        ingreso_gravable
+                    )
+                    SELECT
+                        %s::uuid,
+                        pes.employee_id,
+                        %s::uuid,
+                        %s::uuid,
+                        %s,
+                        %s,
+                        pes.bruto,
+                        pes.neto,
+                        COALESCE(adj.dias_trabajados, 15),
+                        COALESCE(
+                            (SELECT COUNT(*)::int FROM attendance_facts af
+                             WHERE af.employee_id = pes.employee_id
+                               AND af.fecha >= %s AND af.fecha <= %s
+                               AND af.ausencia = true), 0
+                        ),
+                        COALESCE(
+                            (SELECT COUNT(*)::int FROM attendance_facts af
+                             WHERE af.employee_id = pes.employee_id
+                               AND af.fecha >= %s AND af.fecha <= %s
+                               AND af.vacaciones = true), 0
+                        ),
+                        COALESCE(adj.monto_desc_dias, 0),
+                        COALESCE((
+                            SELECT pl.monto FROM payroll_lines pl
+                            JOIN payroll_concepts pc ON pc.id = pl.concept_id
+                            WHERE pl.payroll_run_id = pes.payroll_run_id
+                              AND pl.employee_id = pes.employee_id
+                              AND pc.codigo = 'ISR'
+                            LIMIT 1
+                        ), 0),
+                        COALESCE((
+                            SELECT pl.monto FROM payroll_lines pl
+                            JOIN payroll_concepts pc ON pc.id = pl.concept_id
+                            WHERE pl.payroll_run_id = pes.payroll_run_id
+                              AND pl.employee_id = pes.employee_id
+                              AND pc.codigo = 'CSS_EMPLEADO'
+                            LIMIT 1
+                        ), 0),
+                        pes.bruto
+                    FROM payroll_employee_summary pes
+                    LEFT JOIN payroll_run_adjustments adj
+                        ON adj.payroll_run_id = pes.payroll_run_id
+                       AND adj.employee_id = pes.employee_id
+                    WHERE pes.payroll_run_id = %s::uuid
+                    ON CONFLICT (payroll_period_id, employee_id) DO UPDATE SET
+                        payroll_run_id = EXCLUDED.payroll_run_id,
+                        bruto = EXCLUDED.bruto,
+                        neto = EXCLUDED.neto,
+                        dias_trabajados = EXCLUDED.dias_trabajados,
+                        dias_ausencia = EXCLUDED.dias_ausencia,
+                        dias_vacaciones = EXCLUDED.dias_vacaciones,
+                        monto_desc_ausencia = EXCLUDED.monto_desc_ausencia,
+                        isr_retenido = EXCLUDED.isr_retenido,
+                        css_empleado = EXCLUDED.css_empleado,
+                        ingreso_gravable = EXCLUDED.ingreso_gravable
+                    """,
+                    (
+                        org_id,
+                        payroll_period_id,
+                        run_id,
+                        anio,
+                        mes,
+                        period["fecha_inicio"],
+                        period["fecha_fin"],
+                        period["fecha_inicio"],
+                        period["fecha_fin"],
+                        run_id,
+                    ),
+                )
 
     def get_isr_ytd(
         self,
@@ -623,6 +853,7 @@ class PayrollRepository:
                         result = self._apply_voluntary_and_validate(result, payload)
                         if not is_decimo:
                             self._upsert_isr_ytd(cur, employee_id, payload, result, as_of)
+                        self._upsert_run_adjustment(cur, run_id, employee_id, payload)
 
                     self._persist_employee_lines(cur, run_id, employee_id, result, concept_map)
 
@@ -677,6 +908,41 @@ class PayrollRepository:
         if not validation.valid:
             raise ValueError("; ".join(validation.errors))
         return result
+
+    def _upsert_run_adjustment(
+        self,
+        cur,
+        run_id: str,
+        employee_id: str,
+        payroll_input: PayrollInput,
+    ) -> None:
+        from epayroll.engine.rounding import RoundingMode, round_amount
+
+        att = payroll_input.metadata.get("attendance") or {}
+        aus = int(att.get("ausencias", 0))
+        vac = int(att.get("vacaciones", 0))
+        dias_desc = aus + vac
+        sal_diario = payroll_input.salario_mensual / payroll_input.dias_mes
+        monto_desc = (
+            round_amount(sal_diario * Decimal(dias_desc), RoundingMode.CENTESIMO)
+            if dias_desc
+            else Decimal("0")
+        )
+        cur.execute(
+            """
+            INSERT INTO payroll_run_adjustments (
+                payroll_run_id, employee_id, dias_trabajados, dias_descuento,
+                monto_desc_dias, dev_isr, prestamo_empleado, desc_prestamo,
+                descuento_banco, saldo_prestamo
+            ) VALUES (%s::uuid, %s::uuid, %s, %s, %s, 0, 0, 0, 0, 0)
+            ON CONFLICT (payroll_run_id, employee_id) DO UPDATE SET
+                dias_trabajados = EXCLUDED.dias_trabajados,
+                dias_descuento = EXCLUDED.dias_descuento,
+                monto_desc_dias = EXCLUDED.monto_desc_dias,
+                updated_at = now()
+            """,
+            (run_id, employee_id, payroll_input.dias_trabajados, dias_desc, monto_desc),
+        )
 
     def _persist_employee_lines(
         self,

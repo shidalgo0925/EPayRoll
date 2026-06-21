@@ -54,7 +54,7 @@ def project_org_liquidations(
     causa: str = "DESPIDO_INJUSTIFICADO",
 ) -> dict:
     rows = [project_liquidation(emp, fecha_corte, causa=causa) for emp in employees]
-    total = sum(Decimal(r["total"]) for r in rows)
+    total = sum((Decimal(r["total"]) for r in rows), Decimal("0"))
     return {
         "fecha_corte": fecha_corte.isoformat(),
         "causa": causa,

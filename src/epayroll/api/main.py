@@ -9,7 +9,7 @@ from typing import Any
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
@@ -17,6 +17,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from epayroll import __version__
+from epayroll.export.planilla import planilla_export_filename, planilla_pdf_bytes, planilla_xlsx_bytes
 from epayroll.auth.dependencies import get_auth_context
 from epayroll.auth.jwt import encode_jwt
 from epayroll.auth.middleware import En1AuthMiddleware
@@ -30,6 +31,7 @@ from epayroll.api.schemas import (
     AttendanceCalculateRequest,
     AttendanceFactCreate,
     AttendanceFactsBulkRequest,
+    AttendanceGridSaveRequest,
     AttendanceFactsImportRequest,
     AttendancePeriodProcessRequest,
     DecimoRunCreate,
@@ -56,6 +58,7 @@ from epayroll.api.schemas import (
     SsoTokenResponse,
     HealthResponse,
     PayrollPeriodCreate,
+    PayrollPeriodUpdate,
     PayrollRunCreate,
     LegalRateUpsert,
     AccountCodeUpsert,
@@ -75,7 +78,6 @@ from epayroll.db.repositories import ContractRepository, EmployeeRecord, Employe
 from epayroll.db.termination_repository import TerminationRepository
 from epayroll.db.vacation_repository import VacationRepository
 from epayroll.engine.liquidation import LiquidationInput
-from epayroll.export.planilla_modelo import generate_planilla_modelo_xlsx
 from epayroll.payroll.service import PayrollRunOverrides, PayrollService
 
 app = FastAPI(
@@ -345,6 +347,23 @@ def create_contract(employee_id: str, body: ContractCreate) -> ContractResponse:
     return ContractResponse(**c.__dict__)
 
 
+@app.put("/api/v1/employees/{employee_id}/contract", response_model=ContractResponse)
+def upsert_employee_contract(employee_id: str, body: ContractCreate) -> ContractResponse:
+    """Crea o actualiza el contrato activo (salario, forma pago, inicio)."""
+    try:
+        c = contracts_repo.upsert_active(
+            employee_id=employee_id,
+            contract_type_codigo=body.contract_type_codigo,
+            salario_base=body.salario_base,
+            fecha_inicio=body.fecha_inicio,
+            forma_pago=body.forma_pago,
+            categoria_salario_minimo=body.categoria_salario_minimo,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return ContractResponse(**c.__dict__)
+
+
 @app.post("/api/v1/organizations/{organization_id}/payroll-periods")
 def create_payroll_period(organization_id: str, body: PayrollPeriodCreate) -> dict[str, str]:
     try:
@@ -380,6 +399,34 @@ def get_payroll_period(period_id: str) -> dict[str, Any]:
         "fecha_fin": period["fecha_fin"].isoformat(),
         "fecha_pago": period["fecha_pago"].isoformat(),
     }
+
+
+@app.patch("/api/v1/payroll/periods/{period_id}")
+def update_payroll_period(period_id: str, body: PayrollPeriodUpdate) -> dict[str, Any]:
+    try:
+        period = payroll_repo.update_period(
+            period_id,
+            fecha_inicio=body.fecha_inicio,
+            fecha_fin=body.fecha_fin,
+            fecha_pago=body.fecha_pago,
+            tipo=body.tipo,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {
+        **period,
+        "fecha_inicio": period["fecha_inicio"].isoformat(),
+        "fecha_fin": period["fecha_fin"].isoformat(),
+        "fecha_pago": period["fecha_pago"].isoformat(),
+    }
+
+
+@app.delete("/api/v1/payroll/periods/{period_id}", status_code=204)
+def delete_payroll_period(period_id: str) -> None:
+    try:
+        payroll_repo.delete_period(period_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
 
 
 @app.post("/api/v1/payroll/periods/{period_id}/run")
@@ -420,7 +467,7 @@ def close_payroll_period(period_id: str, body: PeriodCloseRequest | None = None)
 
 @app.post("/api/v1/payroll/runs/{run_id}/payslips/generate")
 def generate_payslips(run_id: str) -> dict[str, Any]:
-    """Genera recibos PDF para todos los empleados de una corrida."""
+    """Genera comprobantes PDF para todos los empleados de una corrida."""
     try:
         payslips = payslip_repo.generate_all_for_run(run_id)
     except ValueError as e:
@@ -430,9 +477,29 @@ def generate_payslips(run_id: str) -> dict[str, Any]:
     return {"run_id": run_id, "payslips_generated": len(payslips), "payslips": payslips}
 
 
+@app.get("/api/v1/payroll/runs/{run_id}/payslips")
+def list_run_payslips(run_id: str) -> dict[str, Any]:
+    """Lista empleados de la corrida con estado del comprobante."""
+    try:
+        items = payslip_repo.list_for_run(run_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    return {"run_id": run_id, "items": items}
+
+
+@app.get("/api/v1/payroll/runs/{run_id}/payslips/{employee_id}/data")
+def get_payslip_data(run_id: str, employee_id: str) -> dict[str, Any]:
+    """Datos del comprobante para vista previa en pantalla."""
+    try:
+        data = payslip_repo.load_payslip_data(run_id, employee_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    return payslip_repo.serialize(data)
+
+
 @app.get("/api/v1/payroll/runs/{run_id}/payslips/{employee_id}")
 def download_payslip(run_id: str, employee_id: str) -> FileResponse:
-    """Descarga recibo PDF; lo genera si aun no existe."""
+    """Descarga comprobante PDF; lo genera si aún no existe."""
     record = payslip_repo.get_payslip_record(run_id, employee_id)
     if not record:
         try:
@@ -441,15 +508,21 @@ def download_payslip(run_id: str, employee_id: str) -> FileResponse:
             raise HTTPException(status_code=404, detail=str(e)) from e
         record = payslip_repo.get_payslip_record(run_id, employee_id)
     if not record or not record.get("pdf_path"):
-        raise HTTPException(status_code=404, detail="Recibo no encontrado")
+        raise HTTPException(status_code=404, detail="Comprobante no encontrado")
 
     path = payslip_repo.resolve_pdf_path(record["pdf_path"])
     if not path.exists():
         raise HTTPException(status_code=404, detail="Archivo PDF no encontrado en disco")
+    try:
+        data = payslip_repo.load_payslip_data(run_id, employee_id)
+        slug = (data.employee_cedula or employee_id).replace(" ", "")
+        fname = f"comprobante_{slug}_{data.periodo_fin.isoformat()}.pdf"
+    except ValueError:
+        fname = f"comprobante_{employee_id}.pdf"
     return FileResponse(
         path,
         media_type="application/pdf",
-        filename=f"recibo_{employee_id}.pdf",
+        filename=fname,
     )
 
 
@@ -856,13 +929,49 @@ def download_ach(run_id: str) -> FileResponse:
 
 @app.get("/api/v1/payroll/runs/{run_id}/planilla")
 def get_planilla_view(run_id: str) -> dict[str, Any]:
-    """Vista planilla completa para verificación operador (Planilla_modelo.xlsx)."""
+    """Vista planilla completa para verificación operador."""
     try:
         return planilla_view_repo.get_run_planilla(run_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.get("/api/v1/payroll/runs/{run_id}/planilla/export.xlsx")
+def download_planilla_xlsx(run_id: str) -> StreamingResponse:
+    """Descarga verificación planilla en Excel."""
+    try:
+        data = planilla_view_repo.get_run_planilla(run_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    content = planilla_xlsx_bytes(data)
+    fname = planilla_export_filename(data, "xlsx")
+    return StreamingResponse(
+        iter([content]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
+@app.get("/api/v1/payroll/runs/{run_id}/planilla/export.pdf")
+def download_planilla_pdf(run_id: str) -> StreamingResponse:
+    """Descarga verificación planilla en PDF."""
+    try:
+        data = planilla_view_repo.get_run_planilla(run_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    content = planilla_pdf_bytes(data)
+    fname = planilla_export_filename(data, "pdf")
+    return StreamingResponse(
+        iter([content]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
 
 
 @app.patch("/api/v1/payroll/runs/{run_id}/adjustments/{employee_id}")
@@ -878,30 +987,6 @@ def update_payroll_adjustment(
         raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@app.post("/api/v1/exports/planilla-modelo/{run_id}")
-def export_planilla_modelo(run_id: str) -> dict[str, Any]:
-    """Genera Excel según docs/Planilla_modelo.xlsx."""
-    try:
-        out = export_repo.storage_dir / "planilla" / f"{run_id}.xlsx"
-        return generate_planilla_modelo_xlsx(run_id, out)
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@app.get("/api/v1/exports/planilla-modelo/{run_id}/download")
-def download_planilla_modelo(run_id: str) -> FileResponse:
-    path = export_repo.storage_dir / "planilla" / f"{run_id}.xlsx"
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="Export planilla no encontrado — ejecute POST primero")
-    return FileResponse(
-        path,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        filename=f"planilla_{run_id}.xlsx",
-    )
 
 
 @app.get("/api/v1/organizations/{organization_id}/legal/rates")
@@ -992,6 +1077,66 @@ def odoo_journal_entry(run_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@app.post("/api/v1/organizations/{org_id}/attendance/grid/ensure")
+def ensure_attendance_grid(org_id: str, body: AttendancePeriodProcessRequest) -> dict[str, Any]:
+    """Genera tabla estándar default (editable) para empleados × días del período."""
+    try:
+        return attendance_facts_repo.ensure_period_grid(
+            org_id, body.fecha_inicio, body.fecha_fin, database_url=get_database_url()
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.post("/api/v1/organizations/{org_id}/attendance/grid/clear")
+def clear_attendance_grid(org_id: str, body: AttendancePeriodProcessRequest) -> dict[str, Any]:
+    """Limpia valores de la tabla; deja solo empleado + fecha."""
+    try:
+        return attendance_facts_repo.clear_period_values(
+            org_id, body.fecha_inicio, body.fecha_fin, database_url=get_database_url()
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.post("/api/v1/organizations/{org_id}/attendance/grid/save")
+def save_attendance_grid(org_id: str, body: AttendanceGridSaveRequest) -> dict[str, Any]:
+    """Guarda cambios de la tabla estándar editable."""
+    try:
+        saved = 0
+        errors = 0
+        error_rows: list[dict[str, Any]] = []
+        for fact in body.facts:
+            row = {**fact.model_dump(), "fuente": body.fuente}
+            r = attendance_facts_repo.upsert_fact(
+                org_id,
+                row,
+                fecha_inicio=body.fecha_inicio,
+                fecha_fin=body.fecha_fin,
+                database_url=get_database_url(),
+            )
+            if r.get("errores"):
+                errors += 1
+                error_rows.append(r)
+            else:
+                saved += 1
+        validation = attendance_facts_repo.validate_period(
+            org_id, body.fecha_inicio, body.fecha_fin, database_url=get_database_url()
+        )
+        facts = attendance_facts_repo.list_facts(
+            org_id, body.fecha_inicio, body.fecha_fin, database_url=get_database_url()
+        )
+        return {
+            "saved": saved,
+            "errors": errors,
+            "error_rows": error_rows,
+            "validation": validation,
+            "facts": facts,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
 @app.post("/api/v1/organizations/{org_id}/attendance/facts")
 def create_attendance_fact(org_id: str, body: AttendanceFactCreate) -> dict[str, Any]:
     """Registra un hecho de asistencia (carga manual o integración)."""
@@ -1022,7 +1167,7 @@ def bulk_attendance_facts(org_id: str, body: AttendanceFactsBulkRequest) -> dict
 
 @app.post("/api/v1/organizations/{org_id}/attendance/import/csv")
 def import_attendance_csv(org_id: str, body: AttendanceFactsImportRequest) -> dict[str, Any]:
-    """Importador CSV/Excel (pegar contenido CSV)."""
+    """Importador CSV (pegar contenido)."""
     try:
         rows = parse_attendance_csv(body.csv_content)
         return attendance_facts_repo.import_rows(
@@ -1251,49 +1396,56 @@ def incapacity_period_impact(
 
 @app.get("/api/v1/demo/setup")
 def demo_setup() -> dict[str, Any]:
-    """Crea empleado demo GT-01 si no existe (requiere seed en BD)."""
+    """Crea empleado demo GT-01 si no existe y carga asistencia demo del período."""
     existing = employees_repo.list_by_org(DEMO_ORG_ID)
+    period_id: str | None = None
+    f_ini = date(2026, 6, 1)
+    f_fin = date(2026, 6, 15)
+
     if existing:
         emp = existing[0]
         contract = contracts_repo.get_active(emp.id)
+        periods = payroll_repo.list_periods(DEMO_ORG_ID, limit=1)
+        if periods:
+            period_id = periods[0]["id"]
+            f_ini = date.fromisoformat(periods[0]["fecha_inicio"])
+            f_fin = date.fromisoformat(periods[0]["fecha_fin"])
         try:
             legal_config_repo.seed_org_defaults(DEMO_ORG_ID)
         except Exception:
             pass
-        return {
-            "organization_id": DEMO_ORG_ID,
-            "employee_id": emp.id,
-            "contract_id": contract.id if contract else None,
-            "message": "Demo ya existía",
-        }
-    emp = employees_repo.create(
-        organization_id=DEMO_ORG_ID,
-        cedula="8-888-8888",
-        nombres="Juan",
-        apellidos="Pérez Demo",
-        ficha="1",
-        telefono="6207-5181",
-    )
-    contract = contracts_repo.create(
-        employee_id=emp.id,
-        contract_type_codigo="INDEFINIDO",
-        salario_base=Decimal("1800"),
-        fecha_inicio=date(2026, 1, 1),
-        forma_pago="QUINCENAL",
-    )
-    period_id = payroll_repo.create_period(
-        organization_id=DEMO_ORG_ID,
-        fecha_inicio=date(2026, 6, 1),
-        fecha_fin=date(2026, 6, 15),
-        fecha_pago=date(2026, 6, 16),
-    )
-    legal_config_repo.seed_org_defaults(DEMO_ORG_ID)
+    else:
+        emp = employees_repo.create(
+            organization_id=DEMO_ORG_ID,
+            cedula="8-888-8888",
+            nombres="Juan",
+            apellidos="Pérez Demo",
+            ficha="1",
+            telefono="6207-5181",
+        )
+        contract = contracts_repo.create(
+            employee_id=emp.id,
+            contract_type_codigo="INDEFINIDO",
+            salario_base=Decimal("1800"),
+            fecha_inicio=date(2026, 1, 1),
+            forma_pago="QUINCENAL",
+        )
+        period_id = payroll_repo.create_period(
+            organization_id=DEMO_ORG_ID,
+            fecha_inicio=f_ini,
+            fecha_fin=f_fin,
+            fecha_pago=date(2026, 6, 16),
+        )
+        legal_config_repo.seed_org_defaults(DEMO_ORG_ID)
+
+    att = attendance_facts_repo.seed_demo_period(DEMO_ORG_ID, f_ini, f_fin)
     return {
         "organization_id": DEMO_ORG_ID,
         "employee_id": emp.id,
-        "contract_id": contract.id,
+        "contract_id": contract.id if contract else None,
         "payroll_period_id": period_id,
-        "message": "Demo creado — ejecutar POST /api/v1/payroll/runs",
+        "attendance_seeded": att,
+        "message": "Demo listo — tabla de asistencia cargada; ejecutar Corrida quincenal",
     }
 
 

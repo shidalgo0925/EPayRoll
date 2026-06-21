@@ -118,6 +118,13 @@ class PayrollPeriodCreate(BaseModel):
     tipo: str = "QUINCENAL"
 
 
+class PayrollPeriodUpdate(BaseModel):
+    fecha_inicio: date | None = None
+    fecha_fin: date | None = None
+    fecha_pago: date | None = None
+    tipo: str | None = None
+
+
 class PeriodCloseRequest(BaseModel):
     run_id: str | None = None
 
@@ -227,10 +234,10 @@ class AttendanceFactCreate(BaseModel):
     cedula: str | None = None
     employee_id: str | None = None
     fecha: date
-    turno: str = "DIURNO"
+    turno: str | None = "DIURNO"
     hora_entrada: str | None = None
     hora_salida: str | None = None
-    descanso_minutos: int = 0
+    descanso_minutos: int = 60
     tipo_dia: str = "NORMAL"
     ausencia: bool = False
     incapacidad: bool = False
@@ -250,6 +257,13 @@ class AttendanceFactsImportRequest(BaseModel):
 class AttendanceFactsBulkRequest(BaseModel):
     facts: list[AttendanceFactCreate]
     fuente: str = "API"
+
+
+class AttendanceGridSaveRequest(BaseModel):
+    fecha_inicio: date
+    fecha_fin: date
+    facts: list[AttendanceFactCreate]
+    fuente: str = "MANUAL"
 
 
 class AttendancePeriodProcessRequest(BaseModel):

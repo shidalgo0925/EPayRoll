@@ -10,7 +10,7 @@ from typing import Any
 
 from epayroll.attendance.validator import validate_fact_row
 from epayroll.db.connection import get_connection
-from epayroll.time.calculator import DailyAttendance, ShiftConfig, calculate_day, summarize_period
+from epayroll.time.calculator import DailyAttendance, PeriodSummary, ShiftConfig, calculate_day, summarize_period
 from epayroll.time.tz import TZ
 
 DEFAULT_SHIFT = ShiftConfig(codigo="DIURNO", tipo_jornada="DIURNA", horas_max_dia=Decimal("8"))
@@ -74,15 +74,23 @@ class AttendanceFactsRepository:
         if not emp_id and not errors:
             errors.append("empleado no encontrado en la organización")
 
-        estado = "VALIDO" if not errors else "ERROR"
-        if errors:
+        no_trabajo = bool(
+            normalized.get("ausencia") or normalized.get("incapacidad") or normalized.get("vacaciones")
+        )
+        vacio = not normalized.get("hora_entrada") and not normalized.get("hora_salida")
+        if errors and vacio and not no_trabajo:
+            estado = "PENDIENTE"
+            errors = []
+        elif errors:
             return {
                 "id": None,
                 "employee_id": emp_id,
                 "fecha": normalized.get("fecha"),
-                "estado_validacion": estado,
+                "estado_validacion": "ERROR",
                 "errores": errors,
             }
+        else:
+            estado = "VALIDO"
 
         fact_id = str(uuid.uuid4())
         with get_connection(database_url) as conn:
@@ -305,6 +313,79 @@ class AttendanceFactsRepository:
             daily.es_domingo = True
         return daily
 
+    @staticmethod
+    def compute_payroll_dias_trabajados(
+        ausencias: int,
+        vacaciones: int,
+        *,
+        es_quincena: bool,
+    ) -> Decimal:
+        """Días efectivos de pago: quincena 15 − ausencias − vacaciones; mensual 30 − …"""
+        base = Decimal("15") if es_quincena else Decimal("30")
+        return max(Decimal("0"), base - Decimal(ausencias) - Decimal(vacaciones))
+
+    @staticmethod
+    def payroll_dias_pago_nominal(es_quincena: bool) -> Decimal:
+        """Días de la quincena/mes para mostrar en planilla (antes de descuentos)."""
+        return Decimal("15") if es_quincena else Decimal("30")
+
+    def summarize_employee_for_payroll(
+        self,
+        organization_id: str,
+        employee_id: str,
+        fecha_inicio: date,
+        fecha_fin: date,
+        *,
+        es_quincena: bool,
+        database_url: str | None = None,
+    ) -> dict[str, Any]:
+        """Resumen de asistencia para corrida de planilla (incluye ausencias en días de pago)."""
+        facts = [
+            f
+            for f in self.list_facts(
+                organization_id,
+                fecha_inicio,
+                fecha_fin,
+                employee_id=employee_id,
+                database_url=database_url,
+            )
+            if f["estado_validacion"] == "VALIDO"
+        ]
+        ausencias = sum(1 for f in facts if f["ausencia"])
+        vacaciones = sum(1 for f in facts if f["vacaciones"])
+
+        days: list[DailyAttendance] = []
+        with get_connection(database_url) as conn:
+            with conn.cursor() as cur:
+                for fact in sorted(facts, key=lambda x: x["fecha"]):
+                    if fact["ausencia"] or fact["vacaciones"]:
+                        continue
+                    shift = self._shift_from_codigo(cur, fact.get("turno") or "DIURNO")
+                    days.append(self._fact_to_daily(fact, shift))
+
+        summary = summarize_period(days) if days else PeriodSummary(
+            dias_trabajados=Decimal("0"),
+            horas_extra_diurnas=Decimal("0"),
+            horas_extra_nocturnas=Decimal("0"),
+            horas_extra_mixta_nocturnas=Decimal("0"),
+            horas_domingo=Decimal("0"),
+            horas_feriado=Decimal("0"),
+            days=[],
+        )
+        dias_trab = self.compute_payroll_dias_trabajados(
+            ausencias, vacaciones, es_quincena=es_quincena
+        )
+        return {
+            "dias_trabajados": dias_trab,
+            "ausencias": ausencias,
+            "vacaciones": vacaciones,
+            "horas_extra_diurnas": summary.horas_extra_diurnas,
+            "horas_extra_nocturnas": summary.horas_extra_nocturnas,
+            "horas_extra_mixta_nocturnas": summary.horas_extra_mixta_nocturnas,
+            "horas_domingo": summary.horas_domingo,
+            "horas_feriado": summary.horas_feriado,
+        }
+
     def process_period_to_daily(
         self,
         organization_id: str,
@@ -317,12 +398,26 @@ class AttendanceFactsRepository:
         if not validation["listo_para_planilla"] and validation["validos"] == 0:
             return {"validation": validation, "employees": [], "message": "Sin hechos válidos"}
 
+        with get_connection(database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    DELETE FROM attendance_daily ad
+                    USING employees e
+                    WHERE ad.employee_id = e.id
+                      AND e.organization_id = %s::uuid
+                      AND ad.fecha >= %s AND ad.fecha <= %s
+                    """,
+                    (organization_id, fecha_inicio, fecha_fin),
+                )
+
         facts = [f for f in self.list_facts(organization_id, fecha_inicio, fecha_fin, database_url=database_url) if f["estado_validacion"] == "VALIDO"]
         by_emp: dict[str, list[dict[str, Any]]] = {}
         for f in facts:
             by_emp.setdefault(f["employee_id"], []).append(f)
 
         summaries: list[dict[str, Any]] = []
+        es_quincena_period = (fecha_fin - fecha_inicio).days <= 16
         with get_connection(database_url) as conn:
             with conn.cursor() as cur:
                 for emp_id, emp_facts in by_emp.items():
@@ -372,12 +467,16 @@ class AttendanceFactsRepository:
                             ),
                         )
                     summary = summarize_period(days)
+                    vacaciones = sum(1 for f in emp_facts if f["vacaciones"])
+                    dias_planilla = self.compute_payroll_dias_trabajados(
+                        ausencias, vacaciones, es_quincena=es_quincena_period
+                    )
                     summaries.append(
                         {
                             "employee_id": emp_id,
                             "cedula": emp_facts[0]["cedula"],
                             "nombre": f"{emp_facts[0]['nombres']} {emp_facts[0]['apellidos']}",
-                            "dias_trabajados": str(summary.dias_trabajados),
+                            "dias_trabajados": str(dias_planilla),
                             "horas_extra_diurnas": str(summary.horas_extra_diurnas),
                             "horas_extra_nocturnas": str(summary.horas_extra_nocturnas),
                             "horas_domingo": str(summary.horas_domingo),
@@ -429,3 +528,215 @@ class AttendanceFactsRepository:
             "estado_validacion": row[16],
             "errores_validacion": row[17],
         }
+
+    def seed_demo_period(
+        self,
+        organization_id: str,
+        fecha_inicio: date,
+        fecha_fin: date,
+        database_url: str | None = None,
+    ) -> dict[str, Any]:
+        """Genera hechos de asistencia demo (lun–sáb) para todos los empleados activos."""
+        from datetime import timedelta
+
+        from epayroll.db.repositories import EmployeeRepository
+
+        employees = EmployeeRepository().list_by_org(organization_id, database_url=database_url)
+        if not employees:
+            return {"seeded": 0, "employees": 0}
+
+        seeded = 0
+        for emp in employees:
+            d = fecha_inicio
+            while d <= fecha_fin:
+                if d.weekday() == 6:
+                    d += timedelta(days=1)
+                    continue
+                self.upsert_fact(
+                    organization_id,
+                    {
+                        "employee_id": emp.id,
+                        "fecha": d,
+                        "turno": "DIURNO",
+                        "hora_entrada": "08:00",
+                        "hora_salida": "17:00",
+                        "descanso_minutos": 60,
+                        "tipo_dia": "NORMAL",
+                        "fuente": "DEMO",
+                    },
+                    database_url=database_url,
+                )
+                seeded += 1
+                d += timedelta(days=1)
+
+        proc = self.process_period_to_daily(
+            organization_id, fecha_inicio, fecha_fin, database_url=database_url
+        )
+        return {
+            "seeded": seeded,
+            "employees": len(employees),
+            "processed": proc.get("employee_count", 0),
+        }
+
+    def _fact_exists(
+        self, cur, employee_id: str, fecha: date
+    ) -> bool:
+        cur.execute(
+            """
+            SELECT 1 FROM attendance_facts
+            WHERE employee_id = %s::uuid AND fecha = %s
+            LIMIT 1
+            """,
+            (employee_id, fecha),
+        )
+        return cur.fetchone() is not None
+
+    def _fetch_fact_snapshot(
+        self, cur, employee_id: str, fecha: date
+    ) -> tuple[bool, bool, bool, Any, Any, Any] | None:
+        cur.execute(
+            """
+            SELECT ausencia, incapacidad, vacaciones, hora_entrada, hora_salida, descanso_minutos
+            FROM attendance_facts
+            WHERE employee_id = %s::uuid AND fecha = %s
+            LIMIT 1
+            """,
+            (employee_id, fecha),
+        )
+        row = cur.fetchone()
+        return row
+
+    @staticmethod
+    def _time_hhmm(value: Any) -> str | None:
+        if value is None:
+            return None
+        if hasattr(value, "strftime"):
+            return value.strftime("%H:%M")
+        return str(value)[:5]
+
+    @staticmethod
+    def _needs_default_apply(snapshot: tuple | None) -> bool:
+        if snapshot is None:
+            return True
+        ausencia, incap, vac, entrada, salida, descanso = snapshot
+        if ausencia or incap or vac:
+            return False
+        if entrada is None and salida is None:
+            return True
+        # Migrar horario default anterior (descanso 61 min → 60 min, 8 h netas)
+        if (
+            AttendanceFactsRepository._time_hhmm(entrada) == "08:00"
+            and AttendanceFactsRepository._time_hhmm(salida) == "17:00"
+            and int(descanso or 0) == 61
+        ):
+            return True
+        return False
+
+    @staticmethod
+    def _default_fact_row(employee_id: str, fecha: date, *, fuente: str) -> dict[str, Any]:
+        return {
+            "employee_id": employee_id,
+            "fecha": fecha,
+            "turno": "DIURNO",
+            "hora_entrada": "08:00",
+            "hora_salida": "17:00",
+            "descanso_minutos": 60,
+            "tipo_dia": "NORMAL",
+            "fuente": fuente,
+        }
+
+    def ensure_period_grid(
+        self,
+        organization_id: str,
+        fecha_inicio: date,
+        fecha_fin: date,
+        *,
+        fuente: str = "MANUAL",
+        database_url: str | None = None,
+    ) -> dict[str, Any]:
+        """Crea filas faltantes y aplica horario default (08:00–12:00 / 13:00–17:00, 60 min almuerzo) donde aplica."""
+        from datetime import timedelta
+
+        from epayroll.db.repositories import EmployeeRepository
+
+        employees = EmployeeRepository().list_by_org(organization_id, database_url=database_url)
+        if not employees:
+            return {"created": 0, "updated": 0, "skipped": 0, "employees": 0, "facts": []}
+
+        created = 0
+        updated = 0
+        skipped = 0
+        with get_connection(database_url) as conn:
+            with conn.cursor() as cur:
+                for emp in employees:
+                    d = fecha_inicio
+                    while d <= fecha_fin:
+                        if d.weekday() == 6:
+                            d += timedelta(days=1)
+                            continue
+                        snap = self._fetch_fact_snapshot(cur, emp.id, d)
+                        if snap is not None and not self._needs_default_apply(snap):
+                            skipped += 1
+                        else:
+                            self.upsert_fact(
+                                organization_id,
+                                self._default_fact_row(emp.id, d, fuente=fuente),
+                                fecha_inicio=fecha_inicio,
+                                fecha_fin=fecha_fin,
+                                database_url=database_url,
+                            )
+                            if snap is None:
+                                created += 1
+                            else:
+                                updated += 1
+                        d += timedelta(days=1)
+
+        facts = self.list_facts(
+            organization_id, fecha_inicio, fecha_fin, database_url=database_url
+        )
+        return {
+            "created": created,
+            "updated": updated,
+            "skipped": skipped,
+            "employees": len(employees),
+            "total": len(facts),
+            "facts": facts,
+        }
+
+    def clear_period_values(
+        self,
+        organization_id: str,
+        fecha_inicio: date,
+        fecha_fin: date,
+        *,
+        database_url: str | None = None,
+    ) -> dict[str, Any]:
+        """Borra valores de asistencia del período; conserva empleado + fecha."""
+        with get_connection(database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE attendance_facts SET
+                        turno = NULL,
+                        hora_entrada = NULL,
+                        hora_salida = NULL,
+                        descanso_minutos = 0,
+                        tipo_dia = 'NORMAL',
+                        ausencia = false,
+                        incapacidad = false,
+                        vacaciones = false,
+                        observacion = NULL,
+                        estado_validacion = 'PENDIENTE',
+                        errores_validacion = '[]'::jsonb,
+                        updated_at = now()
+                    WHERE organization_id = %s::uuid
+                      AND fecha >= %s AND fecha <= %s
+                    """,
+                    (organization_id, fecha_inicio, fecha_fin),
+                )
+                cleared = cur.rowcount
+
+        facts = self.list_facts(
+            organization_id, fecha_inicio, fecha_fin, database_url=database_url
+        )
+        return {"cleared": cleared, "total": len(facts), "facts": facts}
