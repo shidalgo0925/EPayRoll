@@ -1,6 +1,7 @@
 # EPayRoll — Estado actual y continuación
 
 **Última actualización:** 2026-06-21  
+**Contexto analista:** [ANALISTA_CONTEXTO.md](./ANALISTA_CONTEXTO.md) — flujos, reglas de descuento, checklist validación  
 **Workspace:** `EPayRoll` — Easy Technology Services / EN1  
 **Documento vivo:** leer esto al retomar el proyecto (PC local, apps srv o Cursor Remote SSH).
 
@@ -157,7 +158,7 @@ storage/           # payslips/, exports/ (gitignored)
 | `009_vacation_substitutions.sql` | Sustitutos vacaciones |
 | `010_planilla_operational.sql` | Ficha, ajustes corrida, tasas/cuentas org |
 | `011_attendance_facts.sql` | Tabla estándar asistencia |
-| `012_rules_org_rates.sql` | Reglas motor con tasas variables |
+| `012_payroll_attendance_descuento.sql` | Descuento tardanza en ajustes corrida |
 
 ### Seeds JSON clave
 
@@ -260,7 +261,8 @@ Ver `.env.example` en la raíz del repo.
 | 2026-06-13 | Intento Docker en PC local — falló (CLI no instalada). |
 | 2026-06-13 | Piloto end-to-end apps srv completado (puertos 5433/8001). |
 | 2026-06-13 | Sustituciones vacaciones + push Odoo API. 70 tests pass. |
-| 2026-06-21 | Planilla operador: vista 26 cols, config legal por org, ficha/teléfono. Sin export Excel — solo UI web. |
+| 2026-06-21 | Descuentos tardanza en asistencia/planilla, beneficios, liquidación PDF, reset demo. Ver [ANALISTA_CONTEXTO.md](./ANALISTA_CONTEXTO.md). |
+| 2026-06-21 | Planilla operador: vista 26 cols, config legal por org, ficha/teléfono. Export Excel/PDF planilla. |
 
 ---
 

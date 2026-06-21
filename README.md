@@ -8,6 +8,7 @@ Construida sobre arquitectura multiempresa **EasyNodeOne (EN1)**.
 
 | Documento | Descripción |
 |-----------|-------------|
+| [ANALISTA_CONTEXTO.md](./docs/ANALISTA_CONTEXTO.md) | **Handoff analista** — flujos, reglas descuento, checklist |
 | [EPAYROLL_MASTER_PLAN.md](./docs/EPAYROLL_MASTER_PLAN.md) | Plan rector — visión, pilares, criterios de éxito |
 | [EPAYROLL_PANAMA_COMPLIANCE_BLUEPRINT.md](./docs/EPAYROLL_PANAMA_COMPLIANCE_BLUEPRINT.md) | 9 dominios legales, reglas seed, golden tests |
 | [EPAYROLL_DATA_MODEL.md](./docs/EPAYROLL_DATA_MODEL.md) | Entidades, relaciones, catálogos |
