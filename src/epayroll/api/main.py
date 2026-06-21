@@ -18,6 +18,7 @@ from starlette.responses import Response
 
 from epayroll import __version__
 from epayroll.export.planilla import planilla_export_filename, planilla_pdf_bytes, planilla_xlsx_bytes
+from epayroll.payslip.liquidation_pdf import liquidation_pdf_bytes
 from epayroll.auth.dependencies import get_auth_context
 from epayroll.auth.jwt import encode_jwt
 from epayroll.auth.middleware import En1AuthMiddleware
@@ -583,6 +584,20 @@ def execute_payroll_run(body: PayrollRunCreate) -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@app.get("/api/v1/employees/{employee_id}/termination/context")
+def get_termination_context(
+    employee_id: str,
+    fecha_corte: date | None = None,
+) -> dict[str, Any]:
+    """Datos precargados para liquidacion: contrato, vacaciones, salarios YTD."""
+    try:
+        return termination_repo.get_employee_context(employee_id, fecha_corte=fecha_corte)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 @app.post("/api/v1/employees/{employee_id}/termination/calculate")
 def calculate_termination(employee_id: str, body: TerminationCalculateRequest) -> dict[str, Any]:
     """Calcula liquidación — GT-05 / GT-06."""
@@ -638,6 +653,24 @@ def get_termination(case_id: str) -> dict[str, Any]:
     if not result:
         raise HTTPException(status_code=404, detail="Liquidación no encontrada")
     return result
+
+
+@app.get("/api/v1/termination/{case_id}/export.pdf")
+def download_termination_pdf(case_id: str) -> StreamingResponse:
+    try:
+        data = termination_repo.get(case_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    if not data:
+        raise HTTPException(status_code=404, detail="Liquidación no encontrada")
+    content = liquidation_pdf_bytes(data)
+    slug = (data.get("cedula") or case_id).replace(" ", "")
+    fname = f"liquidacion_{slug}_{data.get('fecha_terminacion', 'caso')}.pdf"
+    return StreamingResponse(
+        iter([content]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
 
 
 @app.get("/api/v1/organizations/{organization_id}/terminations")
@@ -745,6 +778,34 @@ def approve_vacation_request(
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.post("/api/v1/vacation/requests/{request_id}/reject")
+def reject_vacation_request(request_id: str) -> dict[str, str]:
+    try:
+        return vacation_repo.reject_request(request_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.post("/api/v1/vacation/requests/{request_id}/gozado")
+def mark_vacation_gozado(request_id: str) -> dict[str, str]:
+    try:
+        return vacation_repo.mark_gozado(request_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.get("/api/v1/vacation/requests/{request_id}")
+def get_vacation_request(request_id: str) -> dict[str, Any]:
+    result = vacation_repo.get_request(request_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Solicitud no encontrada")
+    return result
 
 
 @app.post("/api/v1/vacation/requests/{request_id}/substitute")
@@ -1082,7 +1143,11 @@ def ensure_attendance_grid(org_id: str, body: AttendancePeriodProcessRequest) ->
     """Genera tabla estándar default (editable) para empleados × días del período."""
     try:
         return attendance_facts_repo.ensure_period_grid(
-            org_id, body.fecha_inicio, body.fecha_fin, database_url=get_database_url()
+            org_id,
+            body.fecha_inicio,
+            body.fecha_fin,
+            run_id=body.run_id,
+            database_url=get_database_url(),
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

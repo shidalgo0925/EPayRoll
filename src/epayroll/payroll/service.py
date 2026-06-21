@@ -97,6 +97,7 @@ class PayrollService:
             att_meta = {
                 "ausencias": att["ausencias"],
                 "vacaciones": att["vacaciones"],
+                "descuento_minutos": att.get("descuento_minutos", 0),
             }
 
         inc_impact = self.incapacity_repo.calculate_period_impact(

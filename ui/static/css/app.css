@@ -826,7 +826,7 @@ th {
 }
 
 .att-date-col {
-  min-width: 4.6rem;
+  min-width: 6.8rem;
   line-height: 1.15;
 }
 
@@ -844,7 +844,7 @@ th {
 }
 
 .att-day-cell {
-  min-width: 5.1rem;
+  min-width: 6.8rem;
   background: #fff;
 }
 
@@ -864,18 +864,95 @@ th {
   margin-bottom: 0.2rem;
 }
 
-.att-times input[type="time"] {
+.att-times input[type="time"],
+.att-times input.att-time-text {
   width: 4.1rem;
   min-width: 0;
   padding: 0.12rem 0.1rem;
   font-size: 0.68rem;
   border: 1px solid var(--border);
   border-radius: 4px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
 }
 
 .att-sep {
   color: var(--muted);
   font-size: 0.65rem;
+}
+
+.att-times input.att-time-text.att-time-late {
+  border-color: #ef4444 !important;
+  background: #fef2f2;
+  box-shadow: 0 0 0 1px #fecaca;
+}
+
+.att-times input.att-time-text.att-time-early {
+  border-color: #ea580c !important;
+  background: #fff7ed;
+  box-shadow: 0 0 0 1px #fed7aa;
+}
+
+.att-descuento-banner {
+  margin-bottom: 0.75rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 8px;
+  background: #fff1f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+  font-size: 0.85rem;
+}
+
+.att-descuento-panel {
+  margin: 0.18rem 0 0.12rem;
+  padding: 0.28rem 0.32rem;
+  border-radius: 6px;
+  text-align: center;
+  line-height: 1.25;
+}
+
+.att-descuento-zero {
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+}
+
+.att-descuento-has {
+  background: #fff1f2;
+  border: 1px solid #fca5a5;
+}
+
+.att-descuento-total {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #475569;
+}
+
+.att-descuento-has .att-descuento-total {
+  color: #991b1b;
+}
+
+.att-descuento-total strong {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: #b91c1c;
+  font-variant-numeric: tabular-nums;
+}
+
+.att-descuento-zero .att-descuento-total strong {
+  color: #15803d;
+}
+
+.att-descuento-detail {
+  margin-top: 0.12rem;
+  font-size: 0.58rem;
+  color: #64748b;
+  line-height: 1.2;
+}
+
+.att-descuento-has .att-descuento-detail {
+  color: #b91c1c;
+  font-weight: 600;
 }
 
 .att-flags {

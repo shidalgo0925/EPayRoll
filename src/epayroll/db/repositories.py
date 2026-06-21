@@ -850,10 +850,13 @@ class PayrollRepository:
                         payroll_inp = None
                     else:
                         result = engine.run(payload)
+                        monto_desc_tiempo = self._upsert_run_adjustment(
+                            cur, run_id, employee_id, payload
+                        )
+                        result = self._apply_attendance_time_discount(result, monto_desc_tiempo)
                         result = self._apply_voluntary_and_validate(result, payload)
                         if not is_decimo:
                             self._upsert_isr_ytd(cur, employee_id, payload, result, as_of)
-                        self._upsert_run_adjustment(cur, run_id, employee_id, payload)
 
                     self._persist_employee_lines(cur, run_id, employee_id, result, concept_map)
 
@@ -915,34 +918,65 @@ class PayrollRepository:
         run_id: str,
         employee_id: str,
         payroll_input: PayrollInput,
-    ) -> None:
+    ) -> Decimal:
+        from epayroll.attendance.payroll_descuento import monto_descuento_tiempo
         from epayroll.engine.rounding import RoundingMode, round_amount
 
         att = payroll_input.metadata.get("attendance") or {}
         aus = int(att.get("ausencias", 0))
         vac = int(att.get("vacaciones", 0))
         dias_desc = aus + vac
+        desc_min = int(att.get("descuento_minutos", 0))
         sal_diario = payroll_input.salario_mensual / payroll_input.dias_mes
-        monto_desc = (
+        monto_desc_dias = (
             round_amount(sal_diario * Decimal(dias_desc), RoundingMode.CENTESIMO)
             if dias_desc
             else Decimal("0")
         )
+        monto_desc_tiempo = monto_descuento_tiempo(payroll_input.salario_mensual, desc_min)
         cur.execute(
             """
             INSERT INTO payroll_run_adjustments (
                 payroll_run_id, employee_id, dias_trabajados, dias_descuento,
-                monto_desc_dias, dev_isr, prestamo_empleado, desc_prestamo,
+                monto_desc_dias, descuento_minutos, monto_desc_tiempo,
+                dev_isr, prestamo_empleado, desc_prestamo,
                 descuento_banco, saldo_prestamo
-            ) VALUES (%s::uuid, %s::uuid, %s, %s, %s, 0, 0, 0, 0, 0)
+            ) VALUES (%s::uuid, %s::uuid, %s, %s, %s, %s, %s, 0, 0, 0, 0, 0)
             ON CONFLICT (payroll_run_id, employee_id) DO UPDATE SET
                 dias_trabajados = EXCLUDED.dias_trabajados,
                 dias_descuento = EXCLUDED.dias_descuento,
                 monto_desc_dias = EXCLUDED.monto_desc_dias,
+                descuento_minutos = EXCLUDED.descuento_minutos,
+                monto_desc_tiempo = EXCLUDED.monto_desc_tiempo,
                 updated_at = now()
             """,
-            (run_id, employee_id, payroll_input.dias_trabajados, dias_desc, monto_desc),
+            (
+                run_id,
+                employee_id,
+                payroll_input.dias_trabajados,
+                dias_desc,
+                monto_desc_dias,
+                desc_min,
+                monto_desc_tiempo,
+            ),
         )
+        return monto_desc_tiempo
+
+    def _apply_attendance_time_discount(
+        self, result: PayrollResult, monto_desc_tiempo: Decimal
+    ) -> PayrollResult:
+        if monto_desc_tiempo <= 0:
+            return result
+        result.lines.append(
+            LineResult(
+                codigo_concepto="DESCUENTO_ASISTENCIA",
+                tipo="DESCUENTO",
+                monto=monto_desc_tiempo,
+                prioridad=8,
+                referencia_legal="Tardanza / salida anticipada",
+            )
+        )
+        return result
 
     def _persist_employee_lines(
         self,

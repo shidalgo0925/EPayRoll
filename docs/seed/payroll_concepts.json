@@ -217,6 +217,15 @@
       "imprime_recibo": true,
       "orden_visual": 24,
       "activo": true
+    },
+    {
+      "codigo": "DESCUENTO_ASISTENCIA",
+      "descripcion": "Descuento tardanza / salida anticipada",
+      "tipo": "DESCUENTO",
+      "naturaleza": "NO_SALARIAL",
+      "imprime_recibo": true,
+      "orden_visual": 25,
+      "activo": true
     }
   ]
 }

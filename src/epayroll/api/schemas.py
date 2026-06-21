@@ -269,6 +269,7 @@ class AttendanceGridSaveRequest(BaseModel):
 class AttendancePeriodProcessRequest(BaseModel):
     fecha_inicio: date
     fecha_fin: date
+    run_id: str | None = None
 
 
 class IncapacityCreate(BaseModel):

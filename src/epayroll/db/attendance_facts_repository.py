@@ -8,7 +8,7 @@ from datetime import date, datetime, time
 from decimal import Decimal
 from typing import Any
 
-from epayroll.attendance.validator import validate_fact_row
+from epayroll.attendance.validator import compute_descuento_minutos, validate_fact_row
 from epayroll.db.connection import get_connection
 from epayroll.time.calculator import DailyAttendance, PeriodSummary, ShiftConfig, calculate_day, summarize_period
 from epayroll.time.tz import TZ
@@ -353,6 +353,15 @@ class AttendanceFactsRepository:
         ]
         ausencias = sum(1 for f in facts if f["ausencia"])
         vacaciones = sum(1 for f in facts if f["vacaciones"])
+        descuento_minutos = 0
+        for fact in facts:
+            if fact["ausencia"] or fact["vacaciones"] or fact["incapacidad"]:
+                continue
+            descuento_minutos += compute_descuento_minutos(
+                fact.get("hora_entrada"),
+                fact.get("hora_salida"),
+                fact.get("observacion"),
+            )
 
         days: list[DailyAttendance] = []
         with get_connection(database_url) as conn:
@@ -379,6 +388,7 @@ class AttendanceFactsRepository:
             "dias_trabajados": dias_trab,
             "ausencias": ausencias,
             "vacaciones": vacaciones,
+            "descuento_minutos": descuento_minutos,
             "horas_extra_diurnas": summary.horas_extra_diurnas,
             "horas_extra_nocturnas": summary.horas_extra_nocturnas,
             "horas_extra_mixta_nocturnas": summary.horas_extra_mixta_nocturnas,
@@ -423,12 +433,19 @@ class AttendanceFactsRepository:
                 for emp_id, emp_facts in by_emp.items():
                     days: list[DailyAttendance] = []
                     tardanzas = 0
+                    descuento_minutos_total = 0
                     ausencias = 0
                     for fact in sorted(emp_facts, key=lambda x: x["fecha"]):
                         if fact["ausencia"]:
                             ausencias += 1
-                        if fact.get("observacion") and "tarde" in fact["observacion"].lower():
+                        desc_dia = compute_descuento_minutos(
+                            fact.get("hora_entrada"),
+                            fact.get("hora_salida"),
+                            fact.get("observacion"),
+                        )
+                        if desc_dia > 0:
                             tardanzas += 1
+                            descuento_minutos_total += desc_dia
                         turno = fact.get("turno") or "DIURNO"
                         shift = self._shift_from_codigo(cur, turno)
                         daily = self._fact_to_daily(fact, shift)
@@ -483,6 +500,7 @@ class AttendanceFactsRepository:
                             "horas_feriado": str(summary.horas_feriado),
                             "ausencias": ausencias,
                             "tardanzas": tardanzas,
+                            "descuento_minutos": descuento_minutos_total,
                             "incapacidades": sum(1 for f in emp_facts if f["incapacidad"]),
                             "vacaciones": sum(1 for f in emp_facts if f["vacaciones"]),
                         }
@@ -642,6 +660,7 @@ class AttendanceFactsRepository:
             "hora_salida": "17:00",
             "descanso_minutos": 60,
             "tipo_dia": "NORMAL",
+            "observacion": 'EPAYROLL_ATT_SPLIT:{"amOut":"12:00","pmIn":"13:00"}',
             "fuente": fuente,
         }
 
@@ -651,15 +670,16 @@ class AttendanceFactsRepository:
         fecha_inicio: date,
         fecha_fin: date,
         *,
+        run_id: str | None = None,
         fuente: str = "MANUAL",
         database_url: str | None = None,
     ) -> dict[str, Any]:
         """Crea filas faltantes y aplica horario default (08:00–12:00 / 13:00–17:00, 60 min almuerzo) donde aplica."""
         from datetime import timedelta
 
-        from epayroll.db.repositories import EmployeeRepository
-
-        employees = EmployeeRepository().list_by_org(organization_id, database_url=database_url)
+        employees = self._employees_for_grid(
+            organization_id, run_id=run_id, database_url=database_url
+        )
         if not employees:
             return {"created": 0, "updated": 0, "skipped": 0, "employees": 0, "facts": []}
 
@@ -699,9 +719,43 @@ class AttendanceFactsRepository:
             "updated": updated,
             "skipped": skipped,
             "employees": len(employees),
+            "run_id": run_id,
             "total": len(facts),
             "facts": facts,
         }
+
+    def _employees_for_grid(
+        self,
+        organization_id: str,
+        *,
+        run_id: str | None = None,
+        database_url: str | None = None,
+    ) -> list[Any]:
+        from epayroll.db.repositories import EmployeeRepository
+
+        repo = EmployeeRepository()
+        if not run_id:
+            return repo.list_by_org(organization_id, database_url=database_url)
+
+        with get_connection(database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT pes.employee_id
+                    FROM payroll_employee_summary pes
+                    JOIN employees e ON e.id = pes.employee_id
+                    WHERE pes.payroll_run_id = %s::uuid
+                      AND e.organization_id = %s::uuid
+                    ORDER BY COALESCE(e.ficha, ''), e.apellidos, e.nombres
+                    """,
+                    (run_id, organization_id),
+                )
+                ids = [str(r[0]) for r in cur.fetchall()]
+        if not ids:
+            return []
+        all_emps = repo.list_by_org(organization_id, database_url=database_url)
+        by_id = {e.id: e for e in all_emps}
+        return [by_id[eid] for eid in ids if eid in by_id]
 
     def clear_period_values(
         self,
@@ -740,3 +794,42 @@ class AttendanceFactsRepository:
             organization_id, fecha_inicio, fecha_fin, database_url=database_url
         )
         return {"cleared": cleared, "total": len(facts), "facts": facts}
+
+    def mark_benefit_days(
+        self,
+        organization_id: str,
+        employee_id: str,
+        fecha_inicio: date,
+        fecha_fin: date,
+        *,
+        vacaciones: bool = False,
+        incapacidad: bool = False,
+        observacion: str | None = None,
+        database_url: str | None = None,
+    ) -> dict[str, Any]:
+        """Marca días de vacaciones o incapacidad en attendance_facts."""
+        from datetime import timedelta
+
+        marked = 0
+        current = fecha_inicio
+        while current <= fecha_fin:
+            self.upsert_fact(
+                organization_id,
+                {
+                    "employee_id": employee_id,
+                    "fecha": current.isoformat(),
+                    "vacaciones": vacaciones,
+                    "incapacidad": incapacidad,
+                    "ausencia": False,
+                    "fuente": "SISTEMA",
+                    "observacion": observacion,
+                },
+                database_url=database_url,
+            )
+            marked += 1
+            current += timedelta(days=1)
+        return {
+            "days_marked": marked,
+            "vacaciones": vacaciones,
+            "incapacidad": incapacidad,
+        }

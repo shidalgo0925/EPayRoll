@@ -51,6 +51,7 @@ class IncapacityRepository:
                     (inc_id, employee_id, fecha_inicio, fecha_fin, tipo, certificado_ref, dias_subsidio_css),
                 )
                 inc_id = str(cur.fetchone()[0])
+        self._sync_to_attendance(employee_id, fecha_inicio, fecha_fin, database_url=database_url)
         return {
             "incapacity_id": inc_id,
             "employee_id": employee_id,
@@ -148,6 +149,12 @@ class IncapacityRepository:
                     raise ValueError("Incapacidad no encontrada")
         result = self.get(incapacity_id, database_url=database_url)
         assert result is not None
+        self._sync_to_attendance(
+            result["employee_id"],
+            date.fromisoformat(result["fecha_inicio"]),
+            date.fromisoformat(result["fecha_fin"]),
+            database_url=database_url,
+        )
         return result
 
     def delete(self, incapacity_id: str, database_url: str | None = None) -> None:
@@ -267,3 +274,32 @@ class IncapacityRepository:
             },
             "incapacidades_en_periodo": len(rows),
         }
+
+    def _sync_to_attendance(
+        self,
+        employee_id: str,
+        fecha_inicio: date,
+        fecha_fin: date,
+        database_url: str | None = None,
+    ) -> None:
+        with get_connection(database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT organization_id FROM employees WHERE id = %s::uuid",
+                    (employee_id,),
+                )
+                row = cur.fetchone()
+                if not row:
+                    return
+                org_id = str(row[0])
+        from epayroll.db.attendance_facts_repository import AttendanceFactsRepository
+
+        AttendanceFactsRepository().mark_benefit_days(
+            org_id,
+            employee_id,
+            fecha_inicio,
+            fecha_fin,
+            incapacidad=True,
+            observacion=f"Incapacidad {fecha_inicio.isoformat()}..{fecha_fin.isoformat()}",
+            database_url=database_url,
+        )

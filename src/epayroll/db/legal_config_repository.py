@@ -8,6 +8,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from epayroll.attendance.payroll_descuento import descuento_horas_decimal
 from epayroll.db.connection import get_connection
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -257,13 +258,19 @@ class PlanillaViewRepository:
                     """
                     SELECT employee_id, dias_trabajados, dias_descuento, monto_desc_dias,
                            dev_isr, prestamo_empleado, desc_prestamo, descuento_banco,
-                           saldo_prestamo, notas
+                           saldo_prestamo, notas, descuento_minutos, monto_desc_tiempo
                     FROM payroll_run_adjustments
                     WHERE payroll_run_id = %s::uuid
                     """,
                     (run_id,),
                 )
                 adj_rows = {str(r[0]): r for r in cur.fetchall()}
+
+        from epayroll.db.attendance_facts_repository import AttendanceFactsRepository
+
+        att_repo = AttendanceFactsRepository()
+        fecha_ini = header[1]
+        fecha_fin = header[2]
 
         concepts: dict[str, dict[str, Decimal]] = {}
         for emp_id, codigo, monto in line_rows:
@@ -272,7 +279,8 @@ class PlanillaViewRepository:
 
         rows: list[dict[str, Any]] = []
         tot_keys = [
-            "salario_mensual", "salario_quincenal", "dias_pago", "monto_desc_dias", "dev_isr",
+            "salario_mensual", "salario_quincenal", "dias_pago", "descuento_minutos", "descuento_horas",
+            "monto_desc_tiempo", "monto_desc_dias", "dev_isr",
             "salario_cotizable", "css_empleado", "se_empleado", "isr", "cpp_prestaciones",
             "prestamo_empleado", "desc_prestamo", "descuento_banco", "total_descuentos",
             "cancelacion", "css_patronal", "se_patronal", "riesgo_profesional",
@@ -295,6 +303,20 @@ class PlanillaViewRepository:
             desc_prest = Decimal(str(adj[6])) if adj else Decimal("0")
             desc_banco = Decimal(str(adj[7])) if adj else Decimal("0")
             saldo_prest = Decimal(str(adj[8])) if adj else Decimal("0")
+            desc_min = int(adj[10]) if adj and adj[10] is not None else 0
+            monto_desc_tiempo = Decimal(str(adj[11])) if adj and adj[11] is not None else Decimal("0")
+
+            if desc_min == 0 and monto_desc_tiempo == 0:
+                att_sum = att_repo.summarize_employee_for_payroll(
+                    org_id, eid, fecha_ini, fecha_fin, es_quincena=es_quincena
+                )
+                desc_min = int(att_sum.get("descuento_minutos") or 0)
+                if desc_min > 0:
+                    from epayroll.attendance.payroll_descuento import monto_descuento_tiempo
+
+                    monto_desc_tiempo = monto_descuento_tiempo(sal_mensual, desc_min)
+
+            desc_horas = descuento_horas_decimal(desc_min)
 
             sal_cot = lines.get("SALARIO_BASE", Decimal(str(row[6])))
             sal_diario = sal_mensual / Decimal("30")
@@ -311,7 +333,7 @@ class PlanillaViewRepository:
             prima = lines.get("PRIMA_ANTIGUEDAD_PATRONAL", Decimal("0"))
             gastos = css_pat + se_pat + riesgo + prima
             monto_desc_en_total = Decimal("0") if descuento_ya_en_bruto else monto_desc_dias
-            total_desc = cpp + desc_prest + desc_banco + monto_desc_en_total - dev_isr
+            total_desc = cpp + desc_prest + desc_banco + monto_desc_en_total + monto_desc_tiempo - dev_isr
             cancelacion = sal_cot - total_desc
             total_cpp = gastos + cpp
 
@@ -327,6 +349,9 @@ class PlanillaViewRepository:
                 "dias_pago": str(dias_pago),
                 "dias_trabajados": str(dias_trab),
                 "dias_descuento": str(dias_desc),
+                "descuento_minutos": str(desc_min),
+                "descuento_horas": str(desc_horas),
+                "monto_desc_tiempo": str(monto_desc_tiempo),
                 "monto_desc_dias": str(monto_desc_dias),
                 "descuento_ya_en_salario": descuento_ya_en_bruto,
                 "dev_isr": str(dev_isr),

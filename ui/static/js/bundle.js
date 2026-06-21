@@ -952,6 +952,57 @@
     }
   }
 
+  function renderPlanillaEmployeesPanelHtml(rows, { fromRun = false, orgEmployees = [] } = {}) {
+    const source = fromRun
+      ? `Empleados en verificación planilla (${rows.length})`
+      : `Empleados activos (${orgEmployees.length})`;
+    const hint = fromRun
+      ? "Datos calculados de la corrida — mismos empleados que la grilla de verificación."
+      : "Ejecute corrida quincenal para cargar empleados desde la verificación de planilla.";
+    const list = fromRun ? rows : orgEmployees;
+    const tbody = list.length
+      ? list
+          .map((r) => {
+            if (fromRun) {
+              return `<tr>
+                <td>${escHtml(r.ficha || "—")}</td>
+                <td>${escHtml(r.nombre_completo || "—")}</td>
+                <td>${escHtml(r.telefono || "—")}</td>
+                <td>${escHtml(r.cedula || "—")}</td>
+                <td>${fmtMoney(r.salario_mensual)}</td>
+                <td>${fmtMoney(r.salario_quincenal)}</td>
+                <td>${fmtMoney(r.cancelacion)}</td>
+              </tr>`;
+            }
+            return `<tr>
+              <td>${escHtml(r.ficha || "—")}</td>
+              <td>${escHtml(r.nombres)} ${escHtml(r.apellidos)}</td>
+              <td>${escHtml(r.telefono || "—")}</td>
+              <td>${escHtml(r.cedula)}</td>
+              <td>${r.salario_base != null ? fmtMoney(r.salario_base) : "—"}</td>
+              <td>${r.salario_quincenal != null ? fmtMoney(r.salario_quincenal) : "—"}</td>
+              <td>—</td>
+            </tr>`;
+          })
+          .join("")
+      : `<tr><td colspan="7">Sin empleados — ejecute corrida o alta en Empleados</td></tr>`;
+    return `
+      <h2>${source}</h2>
+      <p class="loading" style="margin-bottom:0.75rem">${hint}</p>
+      <div class="planilla-scroll">
+        <table class="table-crud planilla-grid"><thead><tr>
+          <th>Ficha</th><th>Nombre</th><th>Celular</th><th>Cédula</th>
+          <th>Sal. mensual</th><th>Sal. quincenal</th><th>Neto (cancel.)</th>
+        </tr></thead><tbody>${tbody}</tbody></table>
+      </div>`;
+  }
+
+  function updatePlanillaEmployeesPanel(data) {
+    const panel = document.getElementById("planilla-employees-panel");
+    if (!panel || !data) return;
+    panel.innerHTML = renderPlanillaEmployeesPanelHtml(data.rows || [], { fromRun: true });
+  }
+
   async function renderPayroll(container) {
     const cfg = getConfig();
     const orgId = cfg.orgId || DEMO_ORG;
@@ -966,26 +1017,8 @@
 
     container.innerHTML = `
       <div class="page-header page-header-sub"><h1>Planilla</h1><p>Multi-empleado · períodos, corrida batch, cierre y exportaciones</p></div>
-      <div class="panel">
-        <h2>Empleados — datos planilla (${employees.length})</h2>
-        <p class="loading" style="margin-bottom:0.75rem">Ficha, nombre, celular, cédula, salarios y contrato.</p>
-        <div class="planilla-scroll">
-        <table class="table-crud planilla-grid"><thead><tr>
-          <th>Ficha</th><th>Nombre</th><th>Celular</th><th>Cédula</th>
-          <th>Sal. mensual</th><th>Sal. quincenal</th><th>Forma pago</th><th>Ingreso</th>
-        </tr></thead><tbody>
-          ${employees.length ? employees.map((e) => `<tr>
-            <td>${escHtml(e.ficha || "—")}</td>
-            <td>${escHtml(e.nombres)} ${escHtml(e.apellidos)}</td>
-            <td>${escHtml(e.telefono || "—")}</td>
-            <td>${escHtml(e.cedula)}</td>
-            <td>${e.salario_base != null ? fmtMoney(e.salario_base) : "—"}</td>
-            <td>${e.salario_quincenal != null ? fmtMoney(e.salario_quincenal) : "—"}</td>
-            <td>${escHtml(e.forma_pago || "—")}</td>
-            <td>${escHtml(e.fecha_inicio_contrato || "—")}</td>
-          </tr>`).join("") : `<tr><td colspan="8">Sin empleados — alta en Empleados</td></tr>`}
-        </tbody></table>
-        </div>
+      <div class="panel" id="planilla-employees-panel">
+        ${renderPlanillaEmployeesPanelHtml([], { fromRun: false, orgEmployees: employees })}
       </div>
       <div class="panel">
         <div class="panel-toolbar" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem">
@@ -1019,11 +1052,13 @@
         <h2>Verificación planilla (operador)</h2>
         <p class="loading" style="margin-bottom:0.75rem">Todas las columnas de planilla — revisar antes de cerrar período.</p>
         <div class="btn-row" style="margin-bottom:0.75rem">
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-planilla-load-employees">Cargar empleados</button>
           <button type="button" class="btn btn-secondary btn-sm" id="btn-planilla-refresh">Actualizar vista</button>
           <button type="button" class="btn btn-secondary btn-sm" id="btn-planilla-xlsx" disabled>Descargar Excel</button>
           <button type="button" class="btn btn-secondary btn-sm" id="btn-planilla-pdf" disabled>Descargar PDF</button>
         </div>
-        <div id="planilla-verify"><p class="loading">—</p></div>
+        <div id="planilla-edit-msg"></div>
+        <div id="planilla-verify"><p class="loading">${payrollState.runId ? "Pulse Cargar empleados o Actualizar vista" : "Ejecute corrida quincenal para verificar planilla"}</p></div>
       </div>
       <div class="panel" id="comprobantes-panel">
         <h2>Comprobantes de pago</h2>
@@ -1186,6 +1221,13 @@
         });
       });
 
+    document.getElementById("btn-planilla-load-employees").onclick = () => {
+      if (!payrollState.runId) {
+        flashMsg("planilla-edit-msg", "Primero ejecuta una corrida quincenal", false);
+        return;
+      }
+      loadPlanillaView(payrollState.runId, container);
+    };
     document.getElementById("btn-planilla-refresh").onclick = () =>
       loadPlanillaView(payrollState.runId, container);
     document.getElementById("btn-planilla-xlsx").onclick = async () => {
@@ -1468,7 +1510,7 @@
         ${escHtml(data.periodo?.fecha_inicio)} → ${escHtml(data.periodo?.fecha_fin)} ·
         ${rows.length} empleado(s) · ${cols.length} columnas
         ${runId ? " · <em>Celdas editables: días desc., préstamo, banco, DEV ISR</em>" : ""}
-        ${runId ? " · <em>TOTAL DESCT.: descuento por ausencia (salario ya proporcional si aplica)</em>" : ""}
+        ${runId ? " · <em>MIN./HR. DESC. = tardanza/salida anticipada · DESCT. TIEMPO = monto descontado · TOTAL DESCT. = ausencias</em>" : ""}
       </p>
       <div class="planilla-scroll planilla-verify-wrap" id="planilla-verify-wrap">
         <table class="table-crud planilla-grid planilla-verify-table" id="planilla-verify-table"><thead><tr>${thead}</tr></thead>
@@ -1518,6 +1560,7 @@
     try {
       const data = await api(`/api/v1/payroll/runs/${runId}/planilla`);
       el.innerHTML = `<div id="planilla-edit-msg"></div>${renderPlanillaGrid(data, runId)}`;
+      updatePlanillaEmployeesPanel(data);
       bindPlanillaInlineEdit(runId, container);
     } catch (e) {
       el.innerHTML = `<div class="alert alert-error">${escHtml(e.message)}</div>`;
@@ -1546,15 +1589,23 @@
         ]);
       }
 
-      const alerts = dash.alertas || [];
+      const alerts = dash.alertas || dash.empleados_alerta || [];
       const scheduled = coverage.programadas || coverage.items || [];
+      const nameMap = Object.fromEntries(
+        employees.map((e) => [e.id, `${e.nombres || ""} ${e.apellidos || ""}`.trim()])
+      );
+      const substituteOptions = (currentId) =>
+        `<option value="">— Sin sustituto —</option>${employees
+          .filter((e) => e.id !== currentId && e.activo !== false)
+          .map((e) => `<option value="${escHtml(e.id)}">${escHtml(nameMap[e.id] || e.id)}</option>`)
+          .join("")}`;
 
       container.innerHTML = `
-        <div class="page-header page-header-sub"><h1>Vacaciones</h1><p>Arts. 52–59 · pasivo org · cobertura sustitutos</p></div>
+        <div class="page-header page-header-sub"><h1>Vacaciones</h1><p>Arts. 52–59 · pasivo org · cobertura sustitutos · sync asistencia al aprobar</p></div>
         <div class="grid">
           <div class="card"><div class="label">Pasivo vacaciones (org)</div><div class="value">${fmtMoney(dash.pasivo_total || dash.total_pasivo)}</div></div>
-          <div class="card"><div class="label">Empleados con alerta</div><div class="value">${(dash.empleados_alerta || alerts).length || alerts.length}</div></div>
-          <div class="card"><div class="label">Programadas sin sustituto</div><div class="value">${coverage.sin_sustituto ?? scheduled.filter((s) => !s.substitute_employee_id).length ?? "—"}</div></div>
+          <div class="card"><div class="label">Empleados con alerta Art. 57</div><div class="value">${alerts.length}</div></div>
+          <div class="card"><div class="label">Sin sustituto asignado</div><div class="value">${coverage.sin_sustituto ?? coverage.sin_cobertura ?? scheduled.filter((s) => !s.substitute_employee_id).length}</div></div>
         </div>
         <div class="panel">
           <h2>Empleado</h2>
@@ -1580,20 +1631,33 @@
           <tbody id="vac-requests">${requests.length ? requests.map((r) => {
             const rid = rowKey(r);
             const editable = r.estado === "SOLICITADO";
+            const approved = r.estado === "APROBADO";
+            const subName = r.substitute_employee_id ? nameMap[r.substitute_employee_id] || r.substitute_employee_id : "—";
             const approveBtn = editable ? `<button class="btn btn-secondary btn-sm" data-approve="${escHtml(rid)}">Aprobar</button>` : "";
+            const rejectBtn = editable ? `<button class="btn btn-secondary btn-sm" data-reject="${escHtml(rid)}">Rechazar</button>` : "";
+            const gozadoBtn = approved ? `<button class="btn btn-secondary btn-sm" data-gozado="${escHtml(rid)}">Marcar gozado</button>` : "";
+            const subSelect = editable
+              ? `<select class="vac-substitute-select" data-for="${escHtml(rid)}" title="Sustituto opcional">${substituteOptions(empId)}</select>`
+              : escHtml(subName);
+            const editBtn = editable
+              ? `<button type="button" class="btn-icon" data-crud-edit="${escHtml(rid)}" title="Editar"><svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25M20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg></button>`
+              : "";
+            const delBtn = editable
+              ? `<button type="button" class="btn-icon btn-icon-danger" data-crud-del="${escHtml(rid)}" title="Cancelar"><svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12M19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg></button>`
+              : "";
             return `<tr>
             <td>${escHtml(r.fecha_inicio)} → ${escHtml(r.fecha_fin)}</td><td>${escHtml(r.dias_solicitados)}</td><td>${escHtml(r.estado)}</td>
-            <td><code style="font-size:0.65rem">${escHtml(r.substitute_employee_id || "—")}</code></td>
-            ${crudActions(rid, { edit: editable, del: editable, extra: approveBtn })}
+            <td>${subSelect}</td>
+            <td class="crud-actions">${approveBtn}${rejectBtn}${gozadoBtn}${editBtn}${delBtn}</td>
           </tr>`;
           }).join("") : `<tr><td colspan="5">Sin solicitudes</td></tr>`}</tbody></table>
         </div>
         <div class="panel"><h2>Cobertura próxima</h2>
           <table><thead><tr><th>Empleado</th><th>Desde</th><th>Hasta</th><th>Sustituto</th></tr></thead><tbody>
             ${scheduled.length ? scheduled.slice(0, 10).map((s) => `<tr>
-              <td>${s.empleado_nombre || s.employee_id || "—"}</td>
+              <td>${escHtml(s.empleado || s.empleado_nombre || nameMap[s.employee_id] || s.employee_id || "—")}</td>
               <td>${s.fecha_inicio}</td><td>${s.fecha_fin}</td>
-              <td>${s.substitute_employee_id ? "✓" : "⚠ sin asignar"}</td>
+              <td>${s.substitute_employee_id ? escHtml(nameMap[s.substitute_employee_id] || "Asignado") : "⚠ sin asignar"}</td>
             </tr>`).join("") : `<tr><td colspan="4">Sin vacaciones programadas</td></tr>`}
           </tbody></table>
         </div>`;
@@ -1691,14 +1755,39 @@
 
       container.querySelectorAll("[data-approve]").forEach((btn) => {
         btn.onclick = async () => {
+          const rid = btn.dataset.approve;
+          const subEl = container.querySelector(`.vac-substitute-select[data-for="${rid}"]`);
+          const substituteId = subEl?.value || null;
+          const body = substituteId ? JSON.stringify({ substitute_employee_id: substituteId }) : "{}";
           try {
-            await api(`/api/v1/vacation/requests/${btn.dataset.approve}/approve`, {
-              method: "POST",
-              body: "{}",
-            });
+            await api(`/api/v1/vacation/requests/${rid}/approve`, { method: "POST", body });
+            flashMsg("vac-msg", "Solicitud aprobada — días marcados en asistencia");
             reloadEmp(document.getElementById("vac-emp").value);
           } catch (err) {
-            document.getElementById("vac-msg").innerHTML = `<div class="alert alert-error">${err.message}</div>`;
+            flashMsg("vac-msg", err.message, false);
+          }
+        };
+      });
+      container.querySelectorAll("[data-reject]").forEach((btn) => {
+        btn.onclick = async () => {
+          if (!confirm("¿Rechazar esta solicitud?")) return;
+          try {
+            await api(`/api/v1/vacation/requests/${btn.dataset.reject}/reject`, { method: "POST", body: "{}" });
+            flashMsg("vac-msg", "Solicitud rechazada");
+            reloadEmp(document.getElementById("vac-emp").value);
+          } catch (err) {
+            flashMsg("vac-msg", err.message, false);
+          }
+        };
+      });
+      container.querySelectorAll("[data-gozado]").forEach((btn) => {
+        btn.onclick = async () => {
+          try {
+            await api(`/api/v1/vacation/requests/${btn.dataset.gozado}/gozado`, { method: "POST", body: "{}" });
+            flashMsg("vac-msg", "Vacaciones marcadas como gozadas");
+            reloadEmp(document.getElementById("vac-emp").value);
+          } catch (err) {
+            flashMsg("vac-msg", err.message, false);
           }
         };
       });
@@ -1712,6 +1801,8 @@
     return String(value).slice(0, 5);
   }
 
+  const ATT_SPLIT_PREFIX = "EPAYROLL_ATT_SPLIT:";
+  const ATT_DESCUENTO_PREFIX = "EPAYROLL_DESCUENTO:";
   const ATT_DEFAULT = {
     amIn: "08:00",
     amOut: "12:00",
@@ -1721,14 +1812,190 @@
     turno: "DIURNO",
   };
 
+  function attNormalizeTime(value) {
+    if (value == null) return "";
+    const s = String(value).trim();
+    if (!s) return "";
+    const m = s.match(/^(\d{1,2}):(\d{2})$/);
+    if (!m) return "";
+    const h = Math.min(23, Math.max(0, parseInt(m[1], 10)));
+    const min = Math.min(59, Math.max(0, parseInt(m[2], 10)));
+    return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+  }
+
+  function attParseSplitObs(observacion) {
+    if (!observacion) return null;
+    const m = String(observacion).match(/^EPAYROLL_ATT_SPLIT:(\{[^}]+\})/);
+    if (!m) return null;
+    try {
+      return JSON.parse(m[1]);
+    } catch {
+      return null;
+    }
+  }
+
+  function attStripMachineObs(observacion) {
+    if (!observacion) return "";
+    return String(observacion)
+      .replace(/^EPAYROLL_ATT_SPLIT:\{[^}]+\}\n?/gm, "")
+      .replace(/^EPAYROLL_DESCUENTO:\{[^}]+\}\n?/gm, "")
+      .trim();
+  }
+
+  function attStripSplitObs(observacion) {
+    return attStripMachineObs(observacion);
+  }
+
+  function attBuildObservacion(split, descuentoMin, userObs) {
+    const text = attStripMachineObs(userObs);
+    const parts = [];
+    if (split) {
+      parts.push(`${ATT_SPLIT_PREFIX}${JSON.stringify({ amOut: split.amOut, pmIn: split.pmIn })}`);
+    }
+    if (descuentoMin > 0) {
+      parts.push(`${ATT_DESCUENTO_PREFIX}${JSON.stringify({ minutos: descuentoMin })}`);
+    }
+    const machine = parts.join("\n");
+    if (!machine) return text || null;
+    return text ? `${machine}\n${text}` : machine;
+  }
+
+  function attBuildSplitObs(split, userObs) {
+    const desc = attParseDescuentoObs(userObs) || 0;
+    return attBuildObservacion(split, desc, userObs);
+  }
+
+  function attParseDescuentoObs(observacion) {
+    if (!observacion) return null;
+    for (const line of String(observacion).split("\n")) {
+      const m = line.trim().match(/^EPAYROLL_DESCUENTO:(\{[^}]+\})/);
+      if (!m) continue;
+      try {
+        const data = JSON.parse(m[1]);
+        if (data?.minutos != null) return Math.max(0, Number(data.minutos));
+      } catch {
+        /* ignore */
+      }
+    }
+    return null;
+  }
+
+  function attMinutesBetween(fromTime, toTime) {
+    const a = attNormalizeTime(fromTime);
+    const b = attNormalizeTime(toTime);
+    if (!a || !b) return null;
+    const [h1, m1] = a.split(":").map(Number);
+    const [h2, m2] = b.split(":").map(Number);
+    return h2 * 60 + m2 - (h1 * 60 + m1);
+  }
+
+  function attFormatDescuento(mins) {
+    if (mins == null || mins <= 0) return "0 min";
+    if (mins < 60) return `${mins} min`;
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return m ? `${h}:${String(m).padStart(2, "0")} h` : `${h}:00 h`;
+  }
+
+  function attComputeDescuentoBreakdown(times, schedule = ATT_DEFAULT) {
+    const result = { total: 0, parts: [], hints: {} };
+    if (attIsEmptySplit(times)) return result;
+    const amIn = attNormalizeTime(times.amIn);
+    const amOut = attNormalizeTime(times.amOut);
+    const pmIn = attNormalizeTime(times.pmIn);
+    const pmOut = attNormalizeTime(times.pmOut);
+    const add = (field, kind, mins, label) => {
+      if (mins > 0) {
+        result.total += mins;
+        result.parts.push(label);
+        result.hints[field] = kind;
+      }
+    };
+    if (amIn) add("hora_entrada_am", "late", attMinutesBetween(schedule.amIn, amIn) || 0, `Tarde ${attFormatDescuento(attMinutesBetween(schedule.amIn, amIn) || 0)}`);
+    if (amOut) add("hora_salida_am", "early", attMinutesBetween(amOut, schedule.amOut) || 0, `Sale temprano ${attFormatDescuento(attMinutesBetween(amOut, schedule.amOut) || 0)} (mañana)`);
+    if (pmIn) add("hora_entrada_pm", "late", attMinutesBetween(schedule.pmIn, pmIn) || 0, `Tarde ${attFormatDescuento(attMinutesBetween(schedule.pmIn, pmIn) || 0)} (tarde)`);
+    if (pmOut) add("hora_salida_pm", "early", attMinutesBetween(pmOut, schedule.pmOut) || 0, `Sale temprano ${attFormatDescuento(attMinutesBetween(pmOut, schedule.pmOut) || 0)}`);
+    return result;
+  }
+
+  function attComputeDescuentoMin(times, schedule = ATT_DEFAULT) {
+    return attComputeDescuentoBreakdown(times, schedule).total;
+  }
+
+  function attFormatDescuentoDetail(parts) {
+    if (!parts.length) return "Sin tardanza ni salida anticipada";
+    return parts.join(" · ");
+  }
+
+  function attDescansoFromSplit(times) {
+    if (attIsEmptySplit(times)) return null;
+    const amOut = attNormalizeTime(times.amOut) || ATT_DEFAULT.amOut;
+    const pmIn = attNormalizeTime(times.pmIn) || ATT_DEFAULT.pmIn;
+    const mins = attMinutesBetween(amOut, pmIn);
+    return mins != null && mins >= 0 ? mins : null;
+  }
+
+  function attTimesFromCell(cell) {
+    const get = (field) => cell.querySelector(`[data-field="${field}"]`)?.value || "";
+    return {
+      amIn: get("hora_entrada_am"),
+      amOut: get("hora_salida_am"),
+      pmIn: get("hora_entrada_pm"),
+      pmOut: get("hora_salida_pm"),
+    };
+  }
+
+  function attUpdateCellMetrics(cell) {
+    const times = attTimesFromCell(cell);
+    const descanso = attDescansoFromSplit(times);
+    const desc = attComputeDescuentoBreakdown(times);
+    const descansoHidden = cell.querySelector('[data-field="descanso_minutos"]');
+    const panel = cell.querySelector(".att-descuento-panel");
+    const totalEl = cell.querySelector(".att-descuento-total strong");
+    const detailEl = cell.querySelector(".att-descuento-detail");
+    if (descansoHidden && descanso != null && descanso >= 0) descansoHidden.value = String(descanso);
+    if (totalEl) totalEl.textContent = attFormatDescuento(desc.total);
+    if (detailEl) detailEl.textContent = attFormatDescuentoDetail(desc.parts);
+    if (panel) {
+      panel.classList.toggle("att-descuento-has", desc.total > 0);
+      panel.classList.toggle("att-descuento-zero", desc.total <= 0);
+    }
+    cell.querySelectorAll(".att-time-text").forEach((inp) => {
+      const field = inp.dataset.field;
+      inp.classList.remove("att-time-late", "att-time-early");
+      const kind = desc.hints[field];
+      if (kind === "late") inp.classList.add("att-time-late");
+      if (kind === "early") inp.classList.add("att-time-early");
+    });
+  }
+
+  function attRefreshGridDescuentoBanner() {
+    const banner = document.getElementById("att-descuento-banner");
+    if (!banner) return;
+    let total = 0;
+    let days = 0;
+    document.querySelectorAll("#att-grid .att-day-cell:not(.att-col-dom)").forEach((cell) => {
+      const mins = attComputeDescuentoMin(attTimesFromCell(cell));
+      if (mins > 0) {
+        total += mins;
+        days += 1;
+      }
+    });
+    banner.hidden = days === 0;
+    banner.innerHTML = days
+      ? `<strong>${days} día(s) con descuento</strong> en este período · total ${escHtml(attFormatDescuento(total))} (tardanza / salida anticipada vs 08:00–17:00)`
+      : "";
+  }
+
   function attSplitFromFact(f) {
     if (!f?.hora_entrada && !f?.hora_salida) {
       return { amIn: "", amOut: "", pmIn: "", pmOut: "" };
     }
+    const split = attParseSplitObs(f.observacion);
     return {
       amIn: attTimeInput(f.hora_entrada) || ATT_DEFAULT.amIn,
-      amOut: ATT_DEFAULT.amOut,
-      pmIn: ATT_DEFAULT.pmIn,
+      amOut: attNormalizeTime(split?.amOut) || ATT_DEFAULT.amOut,
+      pmIn: attNormalizeTime(split?.pmIn) || ATT_DEFAULT.pmIn,
       pmOut: attTimeInput(f.hora_salida) || ATT_DEFAULT.pmOut,
     };
   }
@@ -1783,18 +2050,24 @@
     const noWork = !!(f?.ausencia || f?.vacaciones || f?.incapacidad);
     const disabled = isSunday || noWork;
     const times = attSplitFromFact(f);
+    const descansoMins = !disabled ? (attDescansoFromSplit(times) ?? ATT_DEFAULT.descanso) : 0;
+    const descuento = !disabled ? attComputeDescuentoBreakdown(times) : { total: 0, parts: [] };
     return `<td class="att-day-cell ${attCellClass(f)}${isSunday ? " att-col-dom" : ""}"
       data-employee-id="${escHtml(employeeId)}" data-fecha="${escHtml(fecha)}">
       <div class="att-cell-box">
         <div class="att-times att-times-split">
-          <input type="time" class="att-inp att-time-am-in" data-field="hora_entrada_am" value="${times.amIn}" ${disabled ? "disabled" : ""} aria-label="Entrada mañana" />
+          <input type="text" inputmode="numeric" class="att-inp att-time-text att-time-am-in" data-field="hora_entrada_am" value="${times.amIn}" placeholder="08:00" maxlength="5" ${disabled ? "disabled" : ""} aria-label="Entrada mañana" />
           <span class="att-sep">–</span>
-          <input type="time" class="att-inp att-time-am-out" data-field="hora_salida_am" value="${times.amOut}" ${disabled ? "disabled" : ""} aria-label="Salida mañana" />
+          <input type="text" inputmode="numeric" class="att-inp att-time-text att-time-am-out" data-field="hora_salida_am" value="${times.amOut}" placeholder="12:00" maxlength="5" ${disabled ? "disabled" : ""} aria-label="Salida mañana" />
         </div>
         <div class="att-times att-times-split">
-          <input type="time" class="att-inp att-time-pm-in" data-field="hora_entrada_pm" value="${times.pmIn}" ${disabled ? "disabled" : ""} aria-label="Entrada tarde" />
+          <input type="text" inputmode="numeric" class="att-inp att-time-text att-time-pm-in" data-field="hora_entrada_pm" value="${times.pmIn}" placeholder="13:00" maxlength="5" ${disabled ? "disabled" : ""} aria-label="Entrada tarde" />
           <span class="att-sep">–</span>
-          <input type="time" class="att-inp att-time-pm-out" data-field="hora_salida_pm" value="${times.pmOut}" ${disabled ? "disabled" : ""} aria-label="Salida tarde" />
+          <input type="text" inputmode="numeric" class="att-inp att-time-text att-time-pm-out" data-field="hora_salida_pm" value="${times.pmOut}" placeholder="17:00" maxlength="5" ${disabled ? "disabled" : ""} aria-label="Salida tarde" />
+        </div>
+        <div class="att-descuento-panel ${descuento.total > 0 ? "att-descuento-has" : "att-descuento-zero"}"${disabled ? " hidden" : ""}>
+          <div class="att-descuento-total">Descuento: <strong>${attFormatDescuento(descuento.total)}</strong></div>
+          <div class="att-descuento-detail">${escHtml(attFormatDescuentoDetail(descuento.parts))}</div>
         </div>
         <div class="att-flags">
           <label class="att-flag" title="Ausencia"><input type="checkbox" class="att-inp att-chk" data-field="ausencia" ${f?.ausencia ? "checked" : ""} ${isSunday ? "disabled" : ""} />A</label>
@@ -1802,7 +2075,7 @@
           <label class="att-flag" title="Incapacidad"><input type="checkbox" class="att-inp att-chk" data-field="incapacidad" ${f?.incapacidad ? "checked" : ""} ${isSunday ? "disabled" : ""} />I</label>
         </div>
         <input type="hidden" class="att-inp" data-field="turno" value="${escHtml(f?.turno || ATT_DEFAULT.turno)}" />
-        <input type="hidden" class="att-inp" data-field="descanso_minutos" value="${f?.descanso_minutos ?? ATT_DEFAULT.descanso}" />
+        <input type="hidden" class="att-inp" data-field="descanso_minutos" value="${descansoMins}" />
         <input type="hidden" class="att-inp" data-field="tipo_dia" value="${f?.tipo_dia || (isSunday ? "DOMINGO" : "NORMAL")}" />
         <input type="hidden" class="att-inp" data-field="observacion" value="${escHtml(f?.observacion || "")}" />
       </div>
@@ -1845,7 +2118,7 @@
         <tbody>${body}</tbody>
       </table>
     </div>
-    <p class="loading att-matrix-legend">Horario default: 08:00–12:00 y 13:00–17:00 · A/V/I = ausencia / vacaciones / incapacidad · Domingo en gris</p>`;
+    <p class="loading att-matrix-legend">Horario programado 08:00–12:00 / 13:00–17:00 · <strong>Desc.</strong> = minutos descontados (tardanza o salida anticipada) · A/V/I = ausencia / vacaciones / incapacidad</p>`;
   }
 
   function collectAttGridRows(applyDefaults = false) {
@@ -1854,19 +2127,28 @@
       .map((cell) => {
         const get = (field) => cell.querySelector(`[data-field="${field}"]`);
         const chk = (field) => get(field)?.checked || false;
-        const amIn = get("hora_entrada_am")?.value || "";
-        const amOut = get("hora_salida_am")?.value || "";
-        const pmIn = get("hora_entrada_pm")?.value || "";
-        const pmOut = get("hora_salida_pm")?.value || "";
+        const amIn = attNormalizeTime(get("hora_entrada_am")?.value) || "";
+        const amOut = attNormalizeTime(get("hora_salida_am")?.value) || "";
+        const pmIn = attNormalizeTime(get("hora_entrada_pm")?.value) || "";
+        const pmOut = attNormalizeTime(get("hora_salida_pm")?.value) || "";
         const noWork = chk("ausencia") || chk("vacaciones") || chk("incapacidad");
         let entrada = amIn || null;
         let salida = pmOut || null;
-        let descanso = Number(get("descanso_minutos")?.value || ATT_DEFAULT.descanso);
+        let splitAmOut = amOut || ATT_DEFAULT.amOut;
+        let splitPmIn = pmIn || ATT_DEFAULT.pmIn;
+        let descanso = attDescansoFromSplit({ amIn, amOut, pmIn, pmOut }) ?? ATT_DEFAULT.descanso;
+        const storedObs = get("observacion")?.value || "";
         if (applyDefaults && !noWork && attIsEmptySplit({ amIn, amOut, pmIn, pmOut })) {
           entrada = ATT_DEFAULT.amIn;
           salida = ATT_DEFAULT.pmOut;
+          splitAmOut = ATT_DEFAULT.amOut;
+          splitPmIn = ATT_DEFAULT.pmIn;
           descanso = ATT_DEFAULT.descanso;
+        } else if (!noWork) {
+          descanso = attDescansoFromSplit({ amIn, amOut: splitAmOut, pmIn: splitPmIn, pmOut }) ?? descanso;
         }
+        const userObs = attStripMachineObs(storedObs);
+        const descuentoMin = noWork ? 0 : attComputeDescuentoMin({ amIn, amOut, pmIn, pmOut });
         return {
           employee_id: cell.dataset.employeeId,
           fecha: cell.dataset.fecha,
@@ -1878,7 +2160,9 @@
           ausencia: chk("ausencia"),
           incapacidad: chk("incapacidad"),
           vacaciones: chk("vacaciones"),
-          observacion: get("observacion")?.value?.trim() || null,
+          observacion: noWork
+            ? (userObs || null)
+            : attBuildObservacion({ amOut: splitAmOut, pmIn: splitPmIn }, descuentoMin, userObs || null),
         };
       });
   }
@@ -1891,11 +2175,45 @@
         const noWork = cell.querySelector('[data-field="ausencia"]')?.checked
           || cell.querySelector('[data-field="vacaciones"]')?.checked
           || cell.querySelector('[data-field="incapacidad"]')?.checked;
-        cell.querySelectorAll(".att-time-am-in, .att-time-am-out, .att-time-pm-in, .att-time-pm-out").forEach((inp) => {
+        cell.querySelectorAll(".att-time-text").forEach((inp) => {
           inp.disabled = noWork;
           if (noWork) inp.value = "";
         });
+        if (noWork) {
+          const panel = cell.querySelector(".att-descuento-panel");
+          if (panel) panel.hidden = true;
+        } else {
+          const panel = cell.querySelector(".att-descuento-panel");
+          if (panel) panel.hidden = false;
+          attUpdateCellMetrics(cell);
+        }
+        attRefreshGridDescuentoBanner();
       };
+    });
+    document.querySelectorAll("#att-grid .att-time-text").forEach((inp) => {
+      inp.addEventListener("focus", () => {
+        inp.dataset.lastValid = inp.value;
+      });
+      inp.addEventListener("input", () => {
+        const cell = inp.closest(".att-day-cell");
+        if (cell) {
+          attUpdateCellMetrics(cell);
+          attRefreshGridDescuentoBanner();
+        }
+      });
+      inp.addEventListener("blur", () => {
+        const norm = attNormalizeTime(inp.value);
+        if (norm) {
+          inp.value = norm;
+        } else if (inp.value.trim()) {
+          inp.value = inp.dataset.lastValid || "";
+        }
+        const cell = inp.closest(".att-day-cell");
+        if (cell) {
+          attUpdateCellMetrics(cell);
+          attRefreshGridDescuentoBanner();
+        }
+      });
     });
   }
 
@@ -1932,13 +2250,15 @@
       </div>
       <div class="panel">
         <h2>Tabla de asistencia</h2>
-        <p class="loading" style="margin-bottom:0.75rem">Horario estándar: <strong>08:00–12:00</strong> y <strong>13:00–17:00</strong> (8 h, almuerzo 60 min). Use <em>Generar tabla default</em> o guarde celdas vacías para aplicarlo.</p>
+        <p class="loading" style="margin-bottom:0.75rem">Horario programado: <strong>08:00–12:00</strong> y <strong>13:00–17:00</strong>. Cada celda muestra el <strong>descuento</strong> si llegan tarde (ej. 08:10) o salen antes (ej. 15:00). Los campos en rojo/naranja indican la hora fuera de horario.</p>
+        <div id="att-descuento-banner" class="att-descuento-banner" hidden></div>
         <form id="att-period-form" class="inline-form" style="margin-bottom:0.75rem">
           <label>Desde<input type="date" name="fecha_inicio" value="${defaultIni}" required /></label>
           <label>Hasta<input type="date" name="fecha_fin" value="${defaultFin}" required /></label>
         </form>
         <div class="btn-row" style="margin-bottom:0.75rem">
           <button type="button" class="btn" id="att-ensure">Generar tabla default</button>
+          <button type="button" class="btn btn-secondary" id="att-from-planilla" ${payrollState.runId ? "" : "disabled"} title="Usa empleados de la corrida activa">Cargar empleados de planilla</button>
           <button type="button" class="btn btn-secondary" id="att-clear">Limpiar valores</button>
           <button type="button" class="btn" id="att-save">Guardar cambios</button>
           <button type="button" class="btn btn-secondary" id="att-validate">Validar</button>
@@ -1979,10 +2299,22 @@
       if (el) {
         el.innerHTML = renderAttMatrixGrid(facts, fecha_inicio, fecha_fin);
         bindAttGridEditors();
+        document.querySelectorAll("#att-grid .att-day-cell").forEach((cell) => attUpdateCellMetrics(cell));
+        attRefreshGridDescuentoBanner();
       }
     };
 
-    const loadGrid = async (ensureIfEmpty = false) => {
+    const ensureGrid = async (runId = null) => {
+      const { fecha_inicio, fecha_fin } = getRange();
+      const body = { fecha_inicio, fecha_fin };
+      if (runId) body.run_id = runId;
+      return api(`/api/v1/organizations/${orgId}/attendance/grid/ensure`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+    };
+
+    const loadGrid = async (ensureIfEmpty = false, runId = null) => {
       const { fecha_inicio, fecha_fin } = getRange();
       setGridStatus("Cargando…");
       try {
@@ -1990,16 +2322,14 @@
           `/api/v1/organizations/${orgId}/attendance/facts?fecha_inicio=${fecha_inicio}&fecha_fin=${fecha_fin}`
         );
         if (ensureIfEmpty && !(data.facts || []).length) {
-          data = await api(`/api/v1/organizations/${orgId}/attendance/grid/ensure`, {
-            method: "POST",
-            body: JSON.stringify({ fecha_inicio, fecha_fin }),
-          });
+          data = await ensureGrid(runId);
         }
         const facts = data.facts || [];
         renderGrid(facts);
         const emps = attGroupFacts(facts).length;
         const days = attPeriodDays(fecha_inicio, fecha_fin).filter((d) => !d.isSunday).length;
-        setGridStatus(`${emps} empleado(s) × ${days} día(s) · ${fecha_inicio} → ${fecha_fin}`);
+        const src = runId ? " · empleados de corrida planilla" : "";
+        setGridStatus(`${emps} empleado(s) × ${days} día(s) · ${fecha_inicio} → ${fecha_fin}${src}`);
         return facts;
       } catch (e) {
         document.getElementById("att-grid").innerHTML = `<p class="alert alert-error">${escHtml(e.message)}</p>`;
@@ -2018,12 +2348,13 @@
         const emps = data.employees || [];
         el.innerHTML = emps.length
           ? `<table class="table-crud"><thead><tr>
-              <th>Cédula</th><th>Nombre</th><th>Días</th><th>Extra D</th><th>Extra N</th><th>Dom.</th><th>Feriado</th><th>Aus.</th>
+              <th>Cédula</th><th>Nombre</th><th>Días</th><th>Extra D</th><th>Extra N</th><th>Dom.</th><th>Feriado</th><th>Aus.</th><th>Desc. min</th>
             </tr></thead><tbody>${emps.map((e) => `<tr>
               <td>${escHtml(e.cedula)}</td><td>${escHtml(e.nombre)}</td>
               <td>${escHtml(e.dias_trabajados)}</td><td>${escHtml(e.horas_extra_diurnas)}</td>
               <td>${escHtml(e.horas_extra_nocturnas)}</td><td>${escHtml(e.horas_domingo)}</td>
               <td>${escHtml(e.horas_feriado)}</td><td>${e.ausencias}</td>
+              <td>${escHtml(e.descuento_minutos ?? 0)}</td>
             </tr>`).join("")}</tbody></table>`
           : `<p class="loading">Sin resumen — guarde la tabla y pulse Procesar</p>`;
       } catch (e) {
@@ -2034,23 +2365,36 @@
     document.getElementById("att-period-form").onchange = () => loadGrid(true);
 
     document.getElementById("att-ensure").onclick = async () => {
-      const { fecha_inicio, fecha_fin } = getRange();
       try {
-        const r = await api(`/api/v1/organizations/${orgId}/attendance/grid/ensure`, {
-          method: "POST",
-          body: JSON.stringify({ fecha_inicio, fecha_fin }),
-        });
+        const r = await ensureGrid(null);
         renderGrid(r.facts || []);
         const parts = [];
         if (r.created) parts.push(`${r.created} creada(s)`);
         if (r.updated) parts.push(`${r.updated} con horario default`);
         if (!r.created && !r.updated) parts.push("sin cambios (ya completas o con A/V/I)");
-        setGridStatus(`${parts.join(" · ")} · ${r.total} total`);
+        setGridStatus(`${parts.join(" · ")} · ${r.total} total · todos los activos`);
         flashMsg("att-msg", `Tabla: ${r.total} celdas · ${parts.join(", ")}`);
       } catch (e) {
         setGridStatus(e.message, false);
       }
     };
+
+    document.getElementById("att-from-planilla")?.addEventListener("click", async () => {
+      if (!payrollState.runId) {
+        setGridStatus("Ejecute corrida en Planilla primero", false);
+        return;
+      }
+      try {
+        const r = await ensureGrid(payrollState.runId);
+        renderGrid(r.facts || []);
+        setGridStatus(
+          `${r.employees} empleado(s) de corrida · ${r.total} celdas · ${r.created} nueva(s) · ${r.updated} actualizada(s)`
+        );
+        flashMsg("att-msg", `Asistencia cargada desde verificación planilla (${r.employees} empleado(s))`);
+      } catch (e) {
+        setGridStatus(e.message, false);
+      }
+    });
 
     document.getElementById("att-clear").onclick = async () => {
       const { fecha_inicio, fecha_fin } = getRange();
@@ -2158,7 +2502,7 @@
       }
 
       container.innerHTML = `
-        <div class="page-header page-header-sub"><h1>Incapacidades</h1><p>Art. 200 · fondo licencia · GT-10</p></div>
+        <div class="page-header page-header-sub"><h1>Incapacidades</h1><p>Art. 200 · fondo licencia · GT-10 · sync asistencia al registrar</p></div>
         <div class="panel">
           <h2>Empleado</h2>
           <select id="inc-emp" class="emp-select">${employeeOptions(employees, empId)}</select>
@@ -2170,7 +2514,7 @@
             <input type="hidden" name="incapacity_id" value="" />
             <label>Inicio<input type="date" name="inicio" required /></label>
             <label>Fin<input type="date" name="fin" required /></label>
-            <label>Tipo<select name="tipo"><option value="CSS">CSS</option><option value="MATERNIDAD">Maternidad</option><option value="OTRO">Otro</option></select></label>
+            <label>Tipo<select name="tipo"><option value="CSS">CSS</option><option value="FONDO_LICENCIA">Fondo licencia</option><option value="MATERNIDAD">Maternidad</option></select></label>
             <label>Certificado<input type="text" name="cert" placeholder="Ref. CSS" /></label>
             <button type="submit" class="btn" id="inc-submit">Registrar</button>
             <button type="button" class="btn btn-secondary hidden" id="inc-cancel">Cancelar</button>
@@ -2184,7 +2528,7 @@
             <label>Hasta<input type="date" name="hasta" required /></label>
             <button type="submit" class="btn btn-secondary">Calcular GT-10</button>
           </form>
-          <pre class="output" id="inc-impact-out">—</pre>
+          <div id="inc-impact-out" class="output">—</div>
         </div>
         <div class="panel">
           <h2>Historial</h2>
@@ -2240,7 +2584,7 @@
               method: "POST",
               body: JSON.stringify(payload),
             });
-            flashMsg("inc-msg", "Incapacidad registrada");
+            flashMsg("inc-msg", "Incapacidad registrada — días marcados en asistencia");
           }
           resetIncForm();
           reloadEmp(id);
@@ -2284,15 +2628,22 @@
         if (!id) return;
         const fd = new FormData(e.target);
         const out = document.getElementById("inc-impact-out");
-        out.textContent = "Calculando…";
+        out.innerHTML = `<p class="loading">Calculando…</p>`;
         try {
           const r = await api(`/api/v1/employees/${id}/incapacities/period-impact`, {
             method: "POST",
             body: JSON.stringify({ fecha_inicio: fd.get("desde"), fecha_fin: fd.get("hasta") }),
           });
-          out.textContent = JSON.stringify(r, null, 2);
+          out.innerHTML = `
+            <div class="grid" style="margin-bottom:0.75rem">
+              <div class="card"><div class="label">Días incapacidad</div><div class="value">${r.dias_incapacidad ?? "—"}</div></div>
+              <div class="card"><div class="label">Pago empleador</div><div class="value">${fmtMoney(r.pago_empleador?.monto)}</div></div>
+              <div class="card"><div class="label">Subsidio CSS</div><div class="value">${fmtMoney(r.pago_css?.monto_subsidio)}</div></div>
+              <div class="card"><div class="label">Fondo agotado</div><div class="value">${r.fondo_licencia_agotado ? "Sí" : "No"}</div></div>
+            </div>
+            <p class="settings-kv">Salario diario: ${fmtMoney(r.salario_diario)} · Registros en período: ${r.incapacidades_en_periodo ?? 0}</p>`;
         } catch (err) {
-          out.textContent = err.message;
+          out.innerHTML = `<p class="alert alert-error">${escHtml(err.message)}</p>`;
         }
       };
     } catch (e) {
@@ -2323,18 +2674,27 @@
       if (!empId && employees.length) empId = employees[0].id;
 
       let balance = null;
+      let termContext = null;
       if (empId) {
         try {
           balance = await api(`/api/v1/employees/${empId}/vacation/balance`);
         } catch {
           balance = null;
         }
+        try {
+          termContext = await api(`/api/v1/employees/${empId}/termination/context`);
+        } catch {
+          termContext = null;
+        }
       }
 
-      const diasVac = balance?.dias_pendientes ?? balance?.dias_pendiente ?? "0";
+      const diasVac = termContext?.dias_vacaciones_pendientes ?? balance?.dias_pendientes ?? balance?.dias_pendiente ?? "0";
+      const salariosYtd = termContext?.salarios_acumulados_anio ?? "0";
+      const salarioPrima = termContext?.salario_base ?? "";
 
       container.innerHTML = `
-        <div class="page-header page-header-sub"><h1>Liquidaciones</h1><p>GT-05 / GT-06 · cálculo y registro de casos</p></div>
+        <div class="page-header page-header-sub"><h1>Liquidaciones</h1><p>GT-05 / GT-06 · cálculo, registro y PDF</p></div>
+        ${termContext ? `<div class="panel"><p class="settings-kv"><strong>${escHtml(termContext.nombres)} ${escHtml(termContext.apellidos)}</strong> · Contrato desde ${escHtml(termContext.fecha_inicio_contrato || "—")} · Salario ${fmtMoney(termContext.salario_base)} · YTD bruto ${fmtMoney(termContext.salarios_acumulados_anio)}</p></div>` : ""}
         <div class="panel">
           <h2>Casos guardados</h2>
           <table class="table-crud"><thead><tr><th>Empleado</th><th>Causa</th><th>Terminación</th><th>Total</th><th></th></tr></thead><tbody>
@@ -2343,7 +2703,10 @@
               <td>${escHtml(c.causa)}</td>
               <td>${escHtml(c.fecha_terminacion)}</td>
               <td>${fmtMoney(c.total)}</td>
-              <td class="crud-actions"><button type="button" class="btn btn-secondary btn-sm" data-crud-view="${escHtml(c.case_id)}">Ver</button></td>
+              <td class="crud-actions">
+                <button type="button" class="btn btn-secondary btn-sm" data-crud-view="${escHtml(c.case_id)}">Ver</button>
+                <button type="button" class="btn btn-sm" data-liq-pdf="${escHtml(c.case_id)}">PDF</button>
+              </td>
             </tr>`).join("") : `<tr><td colspan="5">Sin casos guardados</td></tr>`}
           </tbody></table>
         </div>
@@ -2364,9 +2727,9 @@
           <h2>Parámetros</h2>
           <form id="liq-params" class="inline-form">
             <label>Días vac. pend.<input type="number" name="dias_vacaciones" step="0.5" min="0" value="${diasVac}" /></label>
-            <label>Salario prima<input type="number" name="salario_prima" step="0.01" min="0" placeholder="Auto contrato" /></label>
+            <label>Salario prima<input type="number" name="salario_prima" step="0.01" min="0" value="${salarioPrima}" placeholder="Auto contrato" /></label>
             <label>Salario diario vac.<input type="number" name="salario_diario_vac" step="0.01" min="0" placeholder="Opcional" /></label>
-            <label>Salarios acum. año<input type="number" name="salarios_anio" step="0.01" min="0" value="0" /></label>
+            <label>Salarios acum. año<input type="number" name="salarios_anio" step="0.01" min="0" value="${salariosYtd}" /></label>
             <label>Salario indem.<input type="number" name="salario_indem" step="0.01" min="0" placeholder="Opcional" /></label>
           </form>
           <div class="btn-row" style="margin-top:0.75rem;margin-bottom:0">
@@ -2396,6 +2759,7 @@
             <strong>Caso:</strong> <code>${escHtml(data.case_id)}</code> ·
             <strong>Causa:</strong> ${escHtml(data.causa || "—")} ·
             <strong>Terminación:</strong> ${escHtml(data.fecha_terminacion || "—")}
+            ${data.case_id ? `<button type="button" class="btn btn-sm" id="liq-result-pdf" style="margin-left:0.5rem">Descargar PDF</button>` : ""}
           </p>
           <table><thead><tr><th>Concepto</th><th>Monto</th></tr></thead><tbody>
             <tr><td>Vacaciones</td><td>${fmtMoney(data.monto_vacaciones)}</td></tr>
@@ -2405,6 +2769,9 @@
             <tr><td>Indemnización</td><td>${fmtMoney(data.monto_indemnizacion)}</td></tr>
             <tr><td><strong>Total</strong></td><td><strong>${fmtMoney(data.total)}</strong></td></tr>
           </tbody></table>`;
+        document.getElementById("liq-result-pdf")?.addEventListener("click", () => {
+          apiDownload(`/api/v1/termination/${data.case_id}/export.pdf`, `liquidacion_${data.case_id.slice(0, 8)}.pdf`);
+        });
       };
 
       const buildBody = (persist) => {
@@ -2432,17 +2799,21 @@
       };
 
       const renderResult = (data) => {
+        if (data.case_id) lastCaseId = data.case_id;
         const lines = data.lines || [];
         document.getElementById("liq-result").innerHTML = `
           <p class="settings-kv" style="margin-bottom:0.75rem">
             <strong>Bruto:</strong> ${fmtMoney(data.bruto)} ·
             <strong>Deducciones:</strong> ${fmtMoney(data.deducciones)} ·
             <strong>Neto:</strong> ${fmtMoney(data.neto)}
-            ${data.case_id ? ` · <strong>Caso:</strong> <code>${data.case_id}</code>` : ""}
+            ${data.case_id ? ` · <strong>Caso:</strong> <code>${data.case_id}</code> <button type="button" class="btn btn-sm" id="liq-result-pdf">PDF</button>` : ""}
           </p>
           <table><thead><tr><th>Concepto</th><th>Tipo</th><th>Monto</th></tr></thead><tbody>
             ${lines.length ? lines.map((l) => `<tr><td>${l.concepto}</td><td>${l.tipo}</td><td>${fmtMoney(l.monto)}</td></tr>`).join("") : `<tr><td colspan="3">Sin líneas</td></tr>`}
           </tbody></table>`;
+        document.getElementById("liq-result-pdf")?.addEventListener("click", () => {
+          apiDownload(`/api/v1/termination/${data.case_id}/export.pdf`, `liquidacion_${data.case_id.slice(0, 8)}.pdf`);
+        });
       };
 
       document.getElementById("liq-calc").onclick = async () => {
@@ -2489,6 +2860,10 @@
             flashMsg("liq-msg", e.message, false);
           }
         },
+      });
+      container.querySelectorAll("[data-liq-pdf]").forEach((btn) => {
+        btn.onclick = () =>
+          apiDownload(`/api/v1/termination/${btn.dataset.liqPdf}/export.pdf`, `liquidacion_${btn.dataset.liqPdf.slice(0, 8)}.pdf`);
       });
     } catch (e) {
       container.innerHTML = `<div class="page-header page-header-sub"><h1>Liquidaciones</h1></div><div class="alert alert-error">${escHtml(e.message)}</div>`;

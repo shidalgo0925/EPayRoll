@@ -11,6 +11,14 @@ from epayroll.vacation.substitutions import validate_substitute_assignment
 from .connection import get_connection
 
 
+def _employee_org_id(employee_id: str, database_url: str | None = None) -> str | None:
+    with get_connection(database_url) as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT organization_id FROM employees WHERE id = %s::uuid", (employee_id,))
+            row = cur.fetchone()
+            return str(row[0]) if row else None
+
+
 class VacationRepository:
     def _employee_contract(
         self, cur, employee_id: str
@@ -166,7 +174,59 @@ class VacationRepository:
                 row = cur.fetchone()
                 if not row:
                     raise ValueError("Solicitud no encontrada o no esta en SOLICITADO")
+        self._sync_vacation_to_attendance(request_id, database_url=database_url)
         return {"request_id": request_id, "estado": "APROBADO"}
+
+    def reject_request(self, request_id: str, database_url: str | None = None) -> dict[str, str]:
+        with get_connection(database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE vacation_requests SET estado = 'RECHAZADO'
+                    WHERE id = %s::uuid AND estado = 'SOLICITADO'
+                    RETURNING id
+                    """,
+                    (request_id,),
+                )
+                if not cur.fetchone():
+                    raise ValueError("Solicitud no encontrada o no rechazable")
+        return {"request_id": request_id, "estado": "RECHAZADO"}
+
+    def mark_gozado(self, request_id: str, database_url: str | None = None) -> dict[str, str]:
+        with get_connection(database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE vacation_requests SET estado = 'GOZADO'
+                    WHERE id = %s::uuid AND estado = 'APROBADO'
+                    RETURNING id
+                    """,
+                    (request_id,),
+                )
+                if not cur.fetchone():
+                    raise ValueError("Solicitud no encontrada o no esta APROBADA")
+        return {"request_id": request_id, "estado": "GOZADO"}
+
+    def _sync_vacation_to_attendance(
+        self, request_id: str, database_url: str | None = None
+    ) -> None:
+        req = self.get_request(request_id, database_url=database_url)
+        if not req:
+            return
+        org_id = _employee_org_id(req["employee_id"], database_url=database_url)
+        if not org_id:
+            return
+        from epayroll.db.attendance_facts_repository import AttendanceFactsRepository
+
+        AttendanceFactsRepository().mark_benefit_days(
+            org_id,
+            req["employee_id"],
+            date.fromisoformat(req["fecha_inicio"]),
+            date.fromisoformat(req["fecha_fin"]),
+            vacaciones=True,
+            observacion=f"Vacaciones {req['fecha_inicio']}..{req['fecha_fin']}",
+            database_url=database_url,
+        )
 
     def assign_substitute(
         self,
@@ -270,8 +330,11 @@ class VacationRepository:
             "total_programadas": len(rows),
             "sin_cobertura": len(pendientes),
             "con_cobertura": len(cubiertas),
+            "sin_sustituto": len(pendientes),
             "pendientes": pendientes,
             "cubiertas": cubiertas,
+            "programadas": pendientes + cubiertas,
+            "items": pendientes + cubiertas,
         }
 
     def list_requests(
