@@ -94,6 +94,40 @@ class TerminationRepository:
             "total": str(row[9]),
         }
 
+    def list_by_org(
+        self,
+        organization_id: str,
+        limit: int = 50,
+        database_url: str | None = None,
+    ) -> list[dict[str, Any]]:
+        with get_connection(database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT tc.id, tc.employee_id, e.nombres, e.apellidos, tc.causa,
+                           tc.fecha_terminacion, tc.total
+                    FROM termination_cases tc
+                    JOIN employees e ON e.id = tc.employee_id
+                    WHERE e.organization_id = %s::uuid
+                    ORDER BY tc.fecha_terminacion DESC
+                    LIMIT %s
+                    """,
+                    (organization_id, limit),
+                )
+                rows = cur.fetchall()
+        return [
+            {
+                "case_id": str(r[0]),
+                "employee_id": str(r[1]),
+                "nombres": r[2],
+                "apellidos": r[3],
+                "causa": r[4],
+                "fecha_terminacion": r[5].isoformat(),
+                "total": str(r[6]),
+            }
+            for r in rows
+        ]
+
     @staticmethod
     def _format_result(case_id: str, result: PayrollResult) -> dict[str, Any]:
         return {

@@ -1,0 +1,431 @@
+"""Repositorio — tabla estándar attendance_facts + importación + resumen."""
+
+from __future__ import annotations
+
+import json
+import uuid
+from datetime import date, datetime, time
+from decimal import Decimal
+from typing import Any
+
+from epayroll.attendance.validator import validate_fact_row
+from epayroll.db.connection import get_connection
+from epayroll.time.calculator import DailyAttendance, ShiftConfig, calculate_day, summarize_period
+from epayroll.time.tz import TZ
+
+DEFAULT_SHIFT = ShiftConfig(codigo="DIURNO", tipo_jornada="DIURNA", horas_max_dia=Decimal("8"))
+
+
+class AttendanceFactsRepository:
+    def resolve_employee_id(
+        self,
+        organization_id: str,
+        *,
+        employee_id: str | None = None,
+        cedula: str | None = None,
+        database_url: str | None = None,
+    ) -> str | None:
+        with get_connection(database_url) as conn:
+            with conn.cursor() as cur:
+                if employee_id:
+                    cur.execute(
+                        """
+                        SELECT id FROM employees
+                        WHERE id = %s::uuid AND organization_id = %s::uuid AND activo = true
+                        """,
+                        (employee_id, organization_id),
+                    )
+                elif cedula:
+                    cur.execute(
+                        """
+                        SELECT id FROM employees
+                        WHERE organization_id = %s::uuid AND cedula = %s AND activo = true
+                        LIMIT 1
+                        """,
+                        (organization_id, cedula),
+                    )
+                else:
+                    return None
+                row = cur.fetchone()
+                return str(row[0]) if row else None
+
+    def upsert_fact(
+        self,
+        organization_id: str,
+        row: dict[str, Any],
+        *,
+        import_batch_id: str | None = None,
+        fecha_inicio: date | None = None,
+        fecha_fin: date | None = None,
+        database_url: str | None = None,
+    ) -> dict[str, Any]:
+        emp_id = row.get("employee_id") or self.resolve_employee_id(
+            organization_id,
+            employee_id=row.get("employee_id"),
+            cedula=row.get("cedula"),
+            database_url=database_url,
+        )
+        normalized, errors = validate_fact_row(
+            row,
+            employee_id=emp_id,
+            fecha_inicio=fecha_inicio,
+            fecha_fin=fecha_fin,
+        )
+        if not emp_id and not errors:
+            errors.append("empleado no encontrado en la organización")
+
+        estado = "VALIDO" if not errors else "ERROR"
+        if errors:
+            return {
+                "id": None,
+                "employee_id": emp_id,
+                "fecha": normalized.get("fecha"),
+                "estado_validacion": estado,
+                "errores": errors,
+            }
+
+        fact_id = str(uuid.uuid4())
+        with get_connection(database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                        """
+                        INSERT INTO attendance_facts (
+                            id, organization_id, employee_id, fecha, turno,
+                            hora_entrada, hora_salida, descanso_minutos, tipo_dia,
+                            ausencia, incapacidad, vacaciones, observacion, fuente,
+                            import_batch_id, estado_validacion, errores_validacion
+                        ) VALUES (
+                            %s::uuid, %s::uuid, %s::uuid, %s, %s, %s, %s, %s, %s::attendance_day_type,
+                            %s, %s, %s, %s, %s, %s::uuid, %s::attendance_fact_status, %s
+                        )
+                        ON CONFLICT (employee_id, fecha) DO UPDATE SET
+                            turno = EXCLUDED.turno,
+                            hora_entrada = EXCLUDED.hora_entrada,
+                            hora_salida = EXCLUDED.hora_salida,
+                            descanso_minutos = EXCLUDED.descanso_minutos,
+                            tipo_dia = EXCLUDED.tipo_dia,
+                            ausencia = EXCLUDED.ausencia,
+                            incapacidad = EXCLUDED.incapacidad,
+                            vacaciones = EXCLUDED.vacaciones,
+                            observacion = EXCLUDED.observacion,
+                            fuente = EXCLUDED.fuente,
+                            import_batch_id = COALESCE(EXCLUDED.import_batch_id, attendance_facts.import_batch_id),
+                            estado_validacion = EXCLUDED.estado_validacion,
+                            errores_validacion = EXCLUDED.errores_validacion,
+                            updated_at = now()
+                        RETURNING id
+                        """,
+                        (
+                            fact_id,
+                            organization_id,
+                            emp_id,
+                            normalized["fecha"],
+                            normalized.get("turno"),
+                            normalized.get("hora_entrada"),
+                            normalized.get("hora_salida"),
+                            normalized.get("descanso_minutos", 0),
+                            normalized.get("tipo_dia", "NORMAL"),
+                            normalized.get("ausencia", False),
+                            normalized.get("incapacidad", False),
+                            normalized.get("vacaciones", False),
+                            normalized.get("observacion"),
+                            normalized.get("fuente", "MANUAL"),
+                            import_batch_id,
+                            estado,
+                            json.dumps([]),
+                        ),
+                    )
+                returned_id = str(cur.fetchone()[0])
+        return {
+            "id": returned_id,
+            "employee_id": emp_id,
+            "fecha": normalized.get("fecha"),
+            "estado_validacion": estado,
+            "errores": errors,
+        }
+
+    def import_rows(
+        self,
+        organization_id: str,
+        rows: list[dict[str, Any]],
+        *,
+        fuente: str = "CSV",
+        nombre_archivo: str | None = None,
+        fecha_inicio: date | None = None,
+        fecha_fin: date | None = None,
+        database_url: str | None = None,
+    ) -> dict[str, Any]:
+        batch_id = str(uuid.uuid4())
+        validos = 0
+        errores = 0
+        results: list[dict[str, Any]] = []
+
+        with get_connection(database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO attendance_import_batches (
+                        id, organization_id, fuente, nombre_archivo,
+                        fecha_inicio, fecha_fin, total_filas, estado
+                    ) VALUES (%s::uuid, %s::uuid, %s, %s, %s, %s, %s, 'RECIBIDO')
+                    """,
+                    (batch_id, organization_id, fuente, nombre_archivo, fecha_inicio, fecha_fin, len(rows)),
+                )
+
+        for row in rows:
+            r = self.upsert_fact(
+                organization_id,
+                row,
+                import_batch_id=batch_id,
+                fecha_inicio=fecha_inicio,
+                fecha_fin=fecha_fin,
+                database_url=database_url,
+            )
+            results.append(r)
+            if r["errores"]:
+                errores += 1
+            else:
+                validos += 1
+
+        estado = "VALIDO" if errores == 0 else ("PARCIAL" if validos else "ERROR")
+        with get_connection(database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE attendance_import_batches SET
+                        filas_validas = %s, filas_error = %s, estado = %s::attendance_import_status
+                    WHERE id = %s::uuid
+                    """,
+                    (validos, errores, estado, batch_id),
+                )
+
+        return {
+            "import_batch_id": batch_id,
+            "total": len(rows),
+            "validos": validos,
+            "errores": errores,
+            "estado": estado,
+            "filas": results,
+        }
+
+    def list_facts(
+        self,
+        organization_id: str,
+        fecha_inicio: date,
+        fecha_fin: date,
+        *,
+        employee_id: str | None = None,
+        database_url: str | None = None,
+    ) -> list[dict[str, Any]]:
+        with get_connection(database_url) as conn:
+            with conn.cursor() as cur:
+                q = """
+                    SELECT af.id, af.employee_id, e.cedula, e.nombres, e.apellidos,
+                           af.fecha, af.turno, af.hora_entrada, af.hora_salida,
+                           af.descanso_minutos, af.tipo_dia::text, af.ausencia, af.incapacidad,
+                           af.vacaciones, af.observacion, af.fuente, af.estado_validacion::text,
+                           af.errores_validacion
+                    FROM attendance_facts af
+                    JOIN employees e ON e.id = af.employee_id
+                    WHERE af.organization_id = %s::uuid
+                      AND af.fecha >= %s AND af.fecha <= %s
+                """
+                params: list[Any] = [organization_id, fecha_inicio, fecha_fin]
+                if employee_id:
+                    q += " AND af.employee_id = %s::uuid"
+                    params.append(employee_id)
+                q += " ORDER BY af.fecha, e.apellidos, e.nombres"
+                cur.execute(q, params)
+                rows = cur.fetchall()
+        return [self._fact_row(r) for r in rows]
+
+    def validate_period(
+        self,
+        organization_id: str,
+        fecha_inicio: date,
+        fecha_fin: date,
+        database_url: str | None = None,
+    ) -> dict[str, Any]:
+        facts = self.list_facts(organization_id, fecha_inicio, fecha_fin, database_url=database_url)
+        validos = sum(1 for f in facts if f["estado_validacion"] == "VALIDO")
+        errores = sum(1 for f in facts if f["estado_validacion"] == "ERROR")
+        pendientes = sum(1 for f in facts if f["estado_validacion"] == "PENDIENTE")
+        return {
+            "fecha_inicio": fecha_inicio.isoformat(),
+            "fecha_fin": fecha_fin.isoformat(),
+            "total": len(facts),
+            "validos": validos,
+            "errores": errores,
+            "pendientes": pendientes,
+            "listo_para_planilla": errores == 0 and pendientes == 0 and validos > 0,
+        }
+
+    def _fact_to_daily(self, fact: dict[str, Any], shift: ShiftConfig) -> DailyAttendance:
+        fecha = date.fromisoformat(fact["fecha"]) if isinstance(fact["fecha"], str) else fact["fecha"]
+        if fact["ausencia"] or fact["vacaciones"]:
+            return DailyAttendance(fecha=fecha, dias_trabajados=Decimal("0"))
+        if fact["incapacidad"]:
+            return calculate_day(fecha, datetime.now(TZ), datetime.now(TZ), shift, es_feriado=False, es_incapacidad=True)
+
+        entrada_t = fact.get("hora_entrada")
+        salida_t = fact.get("hora_salida")
+        if not entrada_t or not salida_t:
+            return DailyAttendance(fecha=fecha, dias_trabajados=Decimal("0"))
+
+        if isinstance(entrada_t, str):
+            h, m = map(int, entrada_t.split(":")[:2])
+            entrada_t = time(h, m)
+        if isinstance(salida_t, str):
+            h, m = map(int, salida_t.split(":")[:2])
+            salida_t = time(h, m)
+
+        from datetime import timedelta
+
+        entrada = datetime.combine(fecha, entrada_t, tzinfo=TZ)
+        salida = datetime.combine(fecha, salida_t, tzinfo=TZ)
+        descanso = int(fact.get("descanso_minutos") or 0)
+        if descanso:
+            worked = (salida - entrada) - timedelta(minutes=descanso)
+            if worked.total_seconds() <= 0:
+                return DailyAttendance(fecha=fecha, dias_trabajados=Decimal("0"))
+            salida = entrada + worked
+
+        es_feriado = fact["tipo_dia"] == "FERIADO"
+        daily = calculate_day(
+            fecha,
+            entrada,
+            salida,
+            shift,
+            es_feriado=es_feriado,
+            es_incapacidad=fact["incapacidad"],
+        )
+        if fact["tipo_dia"] == "DOMINGO" and not es_feriado and not daily.es_domingo:
+            daily.horas_domingo = daily.horas_ordinarias + daily.horas_domingo
+            daily.horas_ordinarias = Decimal("0")
+            daily.es_domingo = True
+        return daily
+
+    def process_period_to_daily(
+        self,
+        organization_id: str,
+        fecha_inicio: date,
+        fecha_fin: date,
+        database_url: str | None = None,
+    ) -> dict[str, Any]:
+        """Hechos VALIDO → attendance_daily + resumen quincenal por empleado."""
+        validation = self.validate_period(organization_id, fecha_inicio, fecha_fin, database_url)
+        if not validation["listo_para_planilla"] and validation["validos"] == 0:
+            return {"validation": validation, "employees": [], "message": "Sin hechos válidos"}
+
+        facts = [f for f in self.list_facts(organization_id, fecha_inicio, fecha_fin, database_url=database_url) if f["estado_validacion"] == "VALIDO"]
+        by_emp: dict[str, list[dict[str, Any]]] = {}
+        for f in facts:
+            by_emp.setdefault(f["employee_id"], []).append(f)
+
+        summaries: list[dict[str, Any]] = []
+        with get_connection(database_url) as conn:
+            with conn.cursor() as cur:
+                for emp_id, emp_facts in by_emp.items():
+                    days: list[DailyAttendance] = []
+                    tardanzas = 0
+                    ausencias = 0
+                    for fact in sorted(emp_facts, key=lambda x: x["fecha"]):
+                        if fact["ausencia"]:
+                            ausencias += 1
+                        if fact.get("observacion") and "tarde" in fact["observacion"].lower():
+                            tardanzas += 1
+                        turno = fact.get("turno") or "DIURNO"
+                        shift = self._shift_from_codigo(cur, turno)
+                        daily = self._fact_to_daily(fact, shift)
+                        days.append(daily)
+                        cur.execute(
+                            """
+                            INSERT INTO attendance_daily (
+                                employee_id, fecha, horas_ordinarias, horas_extra_diurna,
+                                horas_extra_nocturna, horas_extra_mixta_noct, horas_domingo,
+                                horas_feriado, es_feriado, es_domingo, dias_trabajados, calculado_at
+                            ) VALUES (%s::uuid, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())
+                            ON CONFLICT (employee_id, fecha) DO UPDATE SET
+                                horas_ordinarias = EXCLUDED.horas_ordinarias,
+                                horas_extra_diurna = EXCLUDED.horas_extra_diurna,
+                                horas_extra_nocturna = EXCLUDED.horas_extra_nocturna,
+                                horas_extra_mixta_noct = EXCLUDED.horas_extra_mixta_noct,
+                                horas_domingo = EXCLUDED.horas_domingo,
+                                horas_feriado = EXCLUDED.horas_feriado,
+                                es_feriado = EXCLUDED.es_feriado,
+                                es_domingo = EXCLUDED.es_domingo,
+                                dias_trabajados = EXCLUDED.dias_trabajados,
+                                calculado_at = now()
+                            """,
+                            (
+                                emp_id,
+                                daily.fecha,
+                                daily.horas_ordinarias,
+                                daily.horas_extra_diurna,
+                                daily.horas_extra_nocturna,
+                                daily.horas_extra_mixta_noct,
+                                daily.horas_domingo,
+                                daily.horas_feriado,
+                                daily.es_feriado,
+                                daily.es_domingo,
+                                daily.dias_trabajados,
+                            ),
+                        )
+                    summary = summarize_period(days)
+                    summaries.append(
+                        {
+                            "employee_id": emp_id,
+                            "cedula": emp_facts[0]["cedula"],
+                            "nombre": f"{emp_facts[0]['nombres']} {emp_facts[0]['apellidos']}",
+                            "dias_trabajados": str(summary.dias_trabajados),
+                            "horas_extra_diurnas": str(summary.horas_extra_diurnas),
+                            "horas_extra_nocturnas": str(summary.horas_extra_nocturnas),
+                            "horas_domingo": str(summary.horas_domingo),
+                            "horas_feriado": str(summary.horas_feriado),
+                            "ausencias": ausencias,
+                            "tardanzas": tardanzas,
+                            "incapacidades": sum(1 for f in emp_facts if f["incapacidad"]),
+                            "vacaciones": sum(1 for f in emp_facts if f["vacaciones"]),
+                        }
+                    )
+
+        return {"validation": validation, "employees": summaries, "employee_count": len(summaries)}
+
+    @staticmethod
+    def _shift_from_codigo(cur, codigo: str) -> ShiftConfig:
+        cur.execute(
+            "SELECT codigo, tipo_jornada::text, horas_max_dia, maximo_extras_diarias FROM shift_types WHERE codigo = %s AND activo = true LIMIT 1",
+            (codigo,),
+        )
+        row = cur.fetchone()
+        if not row:
+            return DEFAULT_SHIFT
+        return ShiftConfig(
+            codigo=row[0],
+            tipo_jornada=row[1],
+            horas_max_dia=Decimal(str(row[2])),
+            maximo_extras_diarias=Decimal(str(row[3])),
+        )
+
+    @staticmethod
+    def _fact_row(row) -> dict[str, Any]:
+        return {
+            "id": str(row[0]),
+            "employee_id": str(row[1]),
+            "cedula": row[2],
+            "nombres": row[3],
+            "apellidos": row[4],
+            "fecha": row[5].isoformat(),
+            "turno": row[6],
+            "hora_entrada": row[7].isoformat() if row[7] else None,
+            "hora_salida": row[8].isoformat() if row[8] else None,
+            "descanso_minutos": row[9],
+            "tipo_dia": row[10],
+            "ausencia": row[11],
+            "incapacidad": row[12],
+            "vacaciones": row[13],
+            "observacion": row[14],
+            "fuente": row[15],
+            "estado_validacion": row[16],
+            "errores_validacion": row[17],
+        }

@@ -25,8 +25,13 @@ from epayroll.api.schemas import (
     BankAccountCreate,
     OdooEmployeeSyncRequest,
     IncapacityCreate,
+    IncapacityUpdate,
     IncapacityPeriodImpactRequest,
     AttendanceCalculateRequest,
+    AttendanceFactCreate,
+    AttendanceFactsBulkRequest,
+    AttendanceFactsImportRequest,
+    AttendancePeriodProcessRequest,
     DecimoRunCreate,
     PeriodCloseRequest,
     PayrollPeriodRunRequest,
@@ -37,9 +42,11 @@ from epayroll.api.schemas import (
     VacationApproveRequest,
     VacationSubstituteAssign,
     VacationRequestCreate,
+    VacationRequestUpdate,
     ContractCreate,
     ContractResponse,
     EmployeeCreate,
+    EmployeeUpdate,
     EmployeeResponse,
     LoginRequest,
     LoginResponse,
@@ -50,18 +57,25 @@ from epayroll.api.schemas import (
     HealthResponse,
     PayrollPeriodCreate,
     PayrollRunCreate,
+    LegalRateUpsert,
+    AccountCodeUpsert,
+    PayrollAdjustmentUpdate,
 )
 from epayroll.db.analytics_repository import AnalyticsRepository
 from epayroll.db.attendance_repository import AttendanceRepository
+from epayroll.db.attendance_facts_repository import AttendanceFactsRepository
+from epayroll.attendance.importer import parse_attendance_csv
 from epayroll.db.connection import get_connection, get_database_url
 from epayroll.db.export_repository import ExportRepository
 from epayroll.db.incapacity_repository import IncapacityRepository
 from epayroll.db.integration_repository import IntegrationRepository
+from epayroll.db.legal_config_repository import LegalConfigRepository, PlanillaViewRepository
 from epayroll.db.payslip_repository import PayslipRepository
-from epayroll.db.repositories import ContractRepository, EmployeeRepository, PayrollRepository
+from epayroll.db.repositories import ContractRepository, EmployeeRecord, EmployeeRepository, PayrollRepository
 from epayroll.db.termination_repository import TerminationRepository
 from epayroll.db.vacation_repository import VacationRepository
 from epayroll.engine.liquidation import LiquidationInput
+from epayroll.export.planilla_modelo import generate_planilla_modelo_xlsx
 from epayroll.payroll.service import PayrollRunOverrides, PayrollService
 
 app = FastAPI(
@@ -86,6 +100,7 @@ employees_repo = EmployeeRepository()
 contracts_repo = ContractRepository()
 payroll_repo = PayrollRepository()
 attendance_repo = AttendanceRepository()
+attendance_facts_repo = AttendanceFactsRepository()
 payroll_service = PayrollService(
     payroll_repo=payroll_repo,
     contracts_repo=contracts_repo,
@@ -99,9 +114,42 @@ export_repo = ExportRepository()
 integration_repo = IntegrationRepository()
 incapacity_repo = IncapacityRepository()
 analytics_repo = AnalyticsRepository(vacation_repo=vacation_repo)
+legal_config_repo = LegalConfigRepository()
+planilla_view_repo = PlanillaViewRepository()
 
 DEMO_ORG_ID = "00000000-0000-0000-0000-000000000010"
 UI_DIR = Path(__file__).resolve().parents[3] / "ui" / "static"
+
+
+def _employee_response(emp: EmployeeRecord) -> EmployeeResponse:
+    sal_q: Decimal | None = None
+    if emp.salario_base is not None:
+        sal_q = (
+            emp.salario_base / Decimal("2")
+            if emp.forma_pago == "QUINCENAL"
+            else emp.salario_base
+        )
+    return EmployeeResponse(
+        id=emp.id,
+        organization_id=emp.organization_id,
+        cedula=emp.cedula,
+        nombres=emp.nombres,
+        apellidos=emp.apellidos,
+        email=emp.email,
+        ficha=emp.ficha,
+        telefono=emp.telefono,
+        fecha_nacimiento=emp.fecha_nacimiento,
+        estado_civil=emp.estado_civil,
+        direccion=emp.direccion,
+        activo=emp.activo,
+        salario_base=emp.salario_base,
+        salario_quincenal=sal_q,
+        forma_pago=emp.forma_pago,
+        fecha_inicio_contrato=emp.fecha_inicio_contrato,
+        contract_type_codigo=emp.contract_type_codigo,
+        banco=emp.banco,
+        cuenta_bancaria=emp.cuenta_bancaria,
+    )
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -225,10 +273,15 @@ def create_employee(organization_id: str, body: EmployeeCreate) -> EmployeeRespo
             nombres=body.nombres,
             apellidos=body.apellidos,
             email=body.email,
+            ficha=body.ficha,
+            telefono=body.telefono,
+            fecha_nacimiento=body.fecha_nacimiento,
+            estado_civil=body.estado_civil,
+            direccion=body.direccion,
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-    return EmployeeResponse(**emp.__dict__)
+    return _employee_response(emp)
 
 
 @app.get("/api/v1/organizations/{organization_id}/employees", response_model=list[EmployeeResponse])
@@ -237,7 +290,43 @@ def list_employees(organization_id: str) -> list[EmployeeResponse]:
         rows = employees_repo.list_by_org(organization_id)
     except Exception as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
-    return [EmployeeResponse(**r.__dict__) for r in rows]
+    return [_employee_response(r) for r in rows]
+
+
+@app.get("/api/v1/employees/{employee_id}", response_model=EmployeeResponse)
+def get_employee(employee_id: str) -> EmployeeResponse:
+    emp = employees_repo.get_by_id(employee_id)
+    if not emp or not emp.activo:
+        raise HTTPException(status_code=404, detail="Empleado no encontrado")
+    return _employee_response(emp)
+
+
+@app.patch("/api/v1/employees/{employee_id}", response_model=EmployeeResponse)
+def update_employee(employee_id: str, body: EmployeeUpdate) -> EmployeeResponse:
+    try:
+        emp = employees_repo.update(
+            employee_id,
+            cedula=body.cedula,
+            nombres=body.nombres,
+            apellidos=body.apellidos,
+            email=body.email,
+            ficha=body.ficha,
+            telefono=body.telefono,
+            fecha_nacimiento=body.fecha_nacimiento,
+            estado_civil=body.estado_civil,
+            direccion=body.direccion,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return _employee_response(emp)
+
+
+@app.delete("/api/v1/employees/{employee_id}", status_code=204)
+def delete_employee(employee_id: str) -> None:
+    try:
+        employees_repo.deactivate(employee_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
 
 
 @app.post("/api/v1/employees/{employee_id}/contracts", response_model=ContractResponse)
@@ -269,6 +358,28 @@ def create_payroll_period(organization_id: str, body: PayrollPeriodCreate) -> di
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return {"payroll_period_id": period_id}
+
+
+@app.get("/api/v1/organizations/{organization_id}/payroll-periods")
+def list_payroll_periods(organization_id: str) -> list[dict[str, Any]]:
+    try:
+        return payroll_repo.list_periods(organization_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.get("/api/v1/payroll/periods/{period_id}")
+def get_payroll_period(period_id: str) -> dict[str, Any]:
+    try:
+        period = payroll_repo.get_period(period_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    return {
+        **period,
+        "fecha_inicio": period["fecha_inicio"].isoformat(),
+        "fecha_fin": period["fecha_fin"].isoformat(),
+        "fecha_pago": period["fecha_pago"].isoformat(),
+    }
 
 
 @app.post("/api/v1/payroll/periods/{period_id}/run")
@@ -456,6 +567,14 @@ def get_termination(case_id: str) -> dict[str, Any]:
     return result
 
 
+@app.get("/api/v1/organizations/{organization_id}/terminations")
+def list_terminations(organization_id: str) -> list[dict[str, Any]]:
+    try:
+        return termination_repo.list_by_org(organization_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 @app.get("/api/v1/payroll/runs/{run_id}")
 def get_payroll_run(run_id: str) -> dict[str, Any]:
     result = payroll_repo.get_run(run_id)
@@ -515,6 +634,27 @@ def list_vacation_requests(employee_id: str) -> list[dict[str, Any]]:
         return vacation_repo.list_requests(employee_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.patch("/api/v1/vacation/requests/{request_id}")
+def update_vacation_request(request_id: str, body: VacationRequestUpdate) -> dict[str, str]:
+    try:
+        return vacation_repo.update_request(
+            request_id,
+            fecha_inicio=body.fecha_inicio,
+            fecha_fin=body.fecha_fin,
+            dias_solicitados=body.dias_solicitados,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.delete("/api/v1/vacation/requests/{request_id}", status_code=204)
+def cancel_vacation_request(request_id: str) -> None:
+    try:
+        vacation_repo.cancel_request(request_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @app.post("/api/v1/vacation/requests/{request_id}/approve")
@@ -714,6 +854,109 @@ def download_ach(run_id: str) -> FileResponse:
     return FileResponse(path, media_type="text/plain", filename=f"ach_{run_id}.txt")
 
 
+@app.get("/api/v1/payroll/runs/{run_id}/planilla")
+def get_planilla_view(run_id: str) -> dict[str, Any]:
+    """Vista planilla completa para verificación operador (Planilla_modelo.xlsx)."""
+    try:
+        return planilla_view_repo.get_run_planilla(run_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.patch("/api/v1/payroll/runs/{run_id}/adjustments/{employee_id}")
+def update_payroll_adjustment(
+    run_id: str, employee_id: str, body: PayrollAdjustmentUpdate
+) -> dict[str, Any]:
+    """Ajustes operativos: préstamos, banco, días, DEV ISR."""
+    try:
+        return planilla_view_repo.upsert_adjustment(
+            run_id, employee_id, body.model_dump()
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.post("/api/v1/exports/planilla-modelo/{run_id}")
+def export_planilla_modelo(run_id: str) -> dict[str, Any]:
+    """Genera Excel según docs/Planilla_modelo.xlsx."""
+    try:
+        out = export_repo.storage_dir / "planilla" / f"{run_id}.xlsx"
+        return generate_planilla_modelo_xlsx(run_id, out)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.get("/api/v1/exports/planilla-modelo/{run_id}/download")
+def download_planilla_modelo(run_id: str) -> FileResponse:
+    path = export_repo.storage_dir / "planilla" / f"{run_id}.xlsx"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Export planilla no encontrado — ejecute POST primero")
+    return FileResponse(
+        path,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        filename=f"planilla_{run_id}.xlsx",
+    )
+
+
+@app.get("/api/v1/organizations/{organization_id}/legal/rates")
+def list_org_legal_rates(organization_id: str) -> list[dict[str, Any]]:
+    try:
+        return legal_config_repo.list_rates(organization_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.put("/api/v1/organizations/{organization_id}/legal/rates")
+def upsert_org_legal_rate(organization_id: str, body: LegalRateUpsert) -> dict[str, Any]:
+    try:
+        return legal_config_repo.upsert_rate(
+            organization_id,
+            codigo=body.codigo,
+            descripcion=body.descripcion,
+            porcentaje_empleado=body.porcentaje_empleado,
+            porcentaje_empleador=body.porcentaje_empleador,
+            vigencia_desde=body.vigencia_desde,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.get("/api/v1/organizations/{organization_id}/legal/account-codes")
+def list_org_account_codes(organization_id: str) -> list[dict[str, Any]]:
+    try:
+        return legal_config_repo.list_account_codes(organization_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.put("/api/v1/organizations/{organization_id}/legal/account-codes")
+def upsert_org_account_code(organization_id: str, body: AccountCodeUpsert) -> dict[str, Any]:
+    try:
+        return legal_config_repo.upsert_account_code(
+            organization_id,
+            concepto_codigo=body.concepto_codigo,
+            cuenta_codigo=body.cuenta_codigo,
+            etiqueta=body.etiqueta,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.post("/api/v1/organizations/{organization_id}/legal/seed-defaults")
+def seed_org_legal_defaults(organization_id: str) -> dict[str, str]:
+    try:
+        legal_config_repo.seed_org_defaults(organization_id)
+        return {"message": "Config legal demo cargada", "organization_id": organization_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 @app.post("/api/v1/organizations/{organization_id}/integrations/odoo/employees/sync")
 def sync_odoo_employees(organization_id: str, body: OdooEmployeeSyncRequest) -> dict[str, Any]:
     """Importa empleados desde payload estilo Odoo hr.employee."""
@@ -747,6 +990,108 @@ def odoo_journal_entry(run_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.post("/api/v1/organizations/{org_id}/attendance/facts")
+def create_attendance_fact(org_id: str, body: AttendanceFactCreate) -> dict[str, Any]:
+    """Registra un hecho de asistencia (carga manual o integración)."""
+    try:
+        return attendance_facts_repo.upsert_fact(
+            org_id,
+            body.model_dump(),
+            database_url=get_database_url(),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.post("/api/v1/organizations/{org_id}/attendance/facts/bulk")
+def bulk_attendance_facts(org_id: str, body: AttendanceFactsBulkRequest) -> dict[str, Any]:
+    """API externa — lote de hechos de asistencia."""
+    try:
+        rows = [{**f.model_dump(), "fuente": body.fuente} for f in body.facts]
+        return attendance_facts_repo.import_rows(
+            org_id,
+            rows,
+            fuente=body.fuente,
+            database_url=get_database_url(),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.post("/api/v1/organizations/{org_id}/attendance/import/csv")
+def import_attendance_csv(org_id: str, body: AttendanceFactsImportRequest) -> dict[str, Any]:
+    """Importador CSV/Excel (pegar contenido CSV)."""
+    try:
+        rows = parse_attendance_csv(body.csv_content)
+        return attendance_facts_repo.import_rows(
+            org_id,
+            rows,
+            fuente=body.fuente,
+            nombre_archivo=body.nombre_archivo,
+            fecha_inicio=body.fecha_inicio,
+            fecha_fin=body.fecha_fin,
+            database_url=get_database_url(),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.get("/api/v1/organizations/{org_id}/attendance/facts")
+def list_attendance_facts(
+    org_id: str,
+    fecha_inicio: date,
+    fecha_fin: date,
+    employee_id: str | None = None,
+) -> dict[str, Any]:
+    try:
+        facts = attendance_facts_repo.list_facts(
+            org_id, fecha_inicio, fecha_fin, employee_id=employee_id, database_url=get_database_url()
+        )
+        return {"facts": facts, "count": len(facts)}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.post("/api/v1/organizations/{org_id}/attendance/validate")
+def validate_attendance_period(org_id: str, body: AttendancePeriodProcessRequest) -> dict[str, Any]:
+    try:
+        return attendance_facts_repo.validate_period(
+            org_id, body.fecha_inicio, body.fecha_fin, database_url=get_database_url()
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.post("/api/v1/organizations/{org_id}/attendance/process")
+def process_attendance_period(org_id: str, body: AttendancePeriodProcessRequest) -> dict[str, Any]:
+    """Hechos válidos → attendance_daily + resumen quincenal por empleado."""
+    try:
+        return attendance_facts_repo.process_period_to_daily(
+            org_id, body.fecha_inicio, body.fecha_fin, database_url=get_database_url()
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.get("/api/v1/organizations/{org_id}/attendance/summary")
+def attendance_period_summary(
+    org_id: str,
+    fecha_inicio: date,
+    fecha_fin: date,
+) -> dict[str, Any]:
+    try:
+        result = attendance_facts_repo.process_period_to_daily(
+            org_id, fecha_inicio, fecha_fin, database_url=get_database_url()
+        )
+        return {
+            "validation": result.get("validation"),
+            "employees": result.get("employees", []),
+            "employee_count": result.get("employee_count", 0),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @app.post("/api/v1/employees/{employee_id}/schedules")
@@ -841,6 +1186,37 @@ def list_incapacities(employee_id: str) -> list[dict[str, Any]]:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@app.get("/api/v1/incapacities/{incapacity_id}")
+def get_incapacity(incapacity_id: str) -> dict[str, Any]:
+    row = incapacity_repo.get(incapacity_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Incapacidad no encontrada")
+    return row
+
+
+@app.patch("/api/v1/incapacities/{incapacity_id}")
+def update_incapacity(incapacity_id: str, body: IncapacityUpdate) -> dict[str, Any]:
+    try:
+        return incapacity_repo.update(
+            incapacity_id,
+            fecha_inicio=body.fecha_inicio,
+            fecha_fin=body.fecha_fin,
+            tipo=body.tipo,
+            certificado_ref=body.certificado_ref,
+            dias_subsidio_css=body.dias_subsidio_css,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.delete("/api/v1/incapacities/{incapacity_id}", status_code=204)
+def delete_incapacity(incapacity_id: str) -> None:
+    try:
+        incapacity_repo.delete(incapacity_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
 @app.get("/api/v1/employees/{employee_id}/license-fund/balance")
 def license_fund_balance(employee_id: str, anio: int | None = None) -> dict[str, str]:
     """Saldo fondo licencia Art. 200 (12h / 26 jornadas)."""
@@ -880,6 +1256,10 @@ def demo_setup() -> dict[str, Any]:
     if existing:
         emp = existing[0]
         contract = contracts_repo.get_active(emp.id)
+        try:
+            legal_config_repo.seed_org_defaults(DEMO_ORG_ID)
+        except Exception:
+            pass
         return {
             "organization_id": DEMO_ORG_ID,
             "employee_id": emp.id,
@@ -891,6 +1271,8 @@ def demo_setup() -> dict[str, Any]:
         cedula="8-888-8888",
         nombres="Juan",
         apellidos="Pérez Demo",
+        ficha="1",
+        telefono="6207-5181",
     )
     contract = contracts_repo.create(
         employee_id=emp.id,
@@ -905,6 +1287,7 @@ def demo_setup() -> dict[str, Any]:
         fecha_fin=date(2026, 6, 15),
         fecha_pago=date(2026, 6, 16),
     )
+    legal_config_repo.seed_org_defaults(DEMO_ORG_ID)
     return {
         "organization_id": DEMO_ORG_ID,
         "employee_id": emp.id,

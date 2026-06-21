@@ -7,7 +7,7 @@ from typing import Any
 
 from epayroll.db.connection import get_connection
 from epayroll.engine.context import PayrollInput
-from epayroll.time.calculator import DailyAttendance, ShiftConfig, calculate_day, summarize_period
+from epayroll.time.calculator import DailyAttendance, PeriodSummary, ShiftConfig, calculate_day, summarize_period
 
 
 DEFAULT_SHIFT = ShiftConfig(codigo="DIURNO", tipo_jornada="DIURNA", horas_max_dia=Decimal("8"))
@@ -101,6 +101,25 @@ class AttendanceRepository:
         )
         return cur.fetchone() is not None
 
+    def _has_facts(
+        self,
+        cur,
+        employee_id: str,
+        fecha_inicio: date,
+        fecha_fin: date,
+    ) -> bool:
+        cur.execute(
+            """
+            SELECT 1 FROM attendance_facts
+            WHERE employee_id = %s::uuid
+              AND fecha >= %s AND fecha <= %s
+              AND estado_validacion = 'VALIDO'
+            LIMIT 1
+            """,
+            (employee_id, fecha_inicio, fecha_fin),
+        )
+        return cur.fetchone() is not None
+
     def calculate_period(
         self,
         employee_id: str,
@@ -108,6 +127,18 @@ class AttendanceRepository:
         fecha_fin: date,
         database_url: str | None = None,
     ) -> PeriodSummary:
+        with get_connection(database_url) as conn:
+            with conn.cursor() as cur:
+                if self._has_facts(cur, employee_id, fecha_inicio, fecha_fin):
+                    from epayroll.db.attendance_facts_repository import AttendanceFactsRepository
+
+                    org_row = self._org_for_employee(cur, employee_id)
+                    if org_row:
+                        AttendanceFactsRepository().process_period_to_daily(
+                            org_row, fecha_inicio, fecha_fin, database_url=database_url
+                        )
+                    return self.get_period_summary(employee_id, fecha_inicio, fecha_fin, database_url)
+
         days: list[DailyAttendance] = []
         with get_connection(database_url) as conn:
             with conn.cursor() as cur:
@@ -142,6 +173,12 @@ class AttendanceRepository:
                     self._upsert_daily(cur, employee_id, daily)
 
         return summarize_period(days)
+
+    @staticmethod
+    def _org_for_employee(cur, employee_id: str) -> str | None:
+        cur.execute("SELECT organization_id FROM employees WHERE id = %s::uuid", (employee_id,))
+        row = cur.fetchone()
+        return str(row[0]) if row else None
 
     def _upsert_daily(self, cur, employee_id: str, daily: DailyAttendance) -> None:
         cur.execute(

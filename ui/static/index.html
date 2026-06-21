@@ -3,48 +3,82 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>EPayRoll — Easy Technology Services</title>
-    <link rel="stylesheet" href="/app/css/app.css?v=3" />
+    <title>EPayRoll — Gestión de Planilla</title>
+    <link rel="icon" type="image/png" href="/app/img/logo-epayroll.png" />
+    <link rel="stylesheet" href="/app/css/app.css?v=12" />
   </head>
   <body>
-    <div class="layout">
-      <aside class="sidebar">
-        <div class="brand">
-          EPayRoll
-          <small>Panamá · EN1</small>
-        </div>
+    <div class="layout" id="app-layout">
+      <aside class="sidebar" id="sidebar">
+        <a href="/app/" class="brand-compact" title="EPayRoll">
+          <img src="/app/img/logo-epayroll.png" alt="EPayRoll" class="brand-logo-sidebar" width="180" height="56" />
+        </a>
 
-        <div id="api-status" class="loading" style="font-size: 0.8rem">Conectando…</div>
-
-        <nav>
-          <button type="button" data-page="dashboard" class="active">Dashboard</button>
-          <button type="button" data-page="employees">Empleados</button>
-          <button type="button" data-page="payroll">Planilla</button>
+        <nav class="sidebar-nav">
+          <div class="nav-section-label">Operaciones</div>
+          <button type="button" data-page="dashboard" class="active">
+            <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M3 13h8V3H3v10m0 8h8v-6H3v6m10 0h8V11h-8v10m0-18v6h8V3h-8z"/></svg></span>
+            <span class="nav-label">Dashboard</span>
+          </button>
+          <button type="button" data-page="employees">
+            <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3m-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3m0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5C15 14.17 10.33 13 8 13m8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg></span>
+            <span class="nav-label">Empleados</span>
+          </button>
+          <button type="button" data-page="payroll">
+            <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6m4 18H6V4h7v5h5v11M8 15.5h8v1.5H8V15.5m0-3h8v1.5H8V12.5m0-3h5v1.5H8V9.5z"/></svg></span>
+            <span class="nav-label">Planilla</span>
+          </button>
+          <button type="button" data-page="attendance">
+            <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2m0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8m.5-13H11v6l5.2 3.2.8-1.3-4.5-2.7V7z"/></svg></span>
+            <span class="nav-label">Asistencia</span>
+          </button>
+          <div class="nav-section-label">Cumplimiento</div>
+          <button type="button" data-page="vacations">
+            <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="m6.76 4.84-1.8-1.79-1.41 1.41 1.79 1.79 1.42-1.41M1 10.5h3v2H1v-2m9-9.5h2v3h-2v-3m9.45 6.05 1.41-1.41-1.79-1.79-1.41 1.41 1.79 1.79M20 10.5v2h3v-2h-3M12 5.5a6.5 6.5 0 1 0 .001 13.001A6.5 6.5 0 0 0 12 5.5M11 22.5h2v-3h-2v3z"/></svg></span>
+            <span class="nav-label">Vacaciones</span>
+          </button>
+          <button type="button" data-page="incapacities">
+            <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2m-7 14h-2v-2h2v2m0-4h-2V7h2v6"/></svg></span>
+            <span class="nav-label">Incapacidades</span>
+          </button>
+          <button type="button" data-page="liquidations">
+            <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2m-1 14H9V8h2v8m4 0h-2V8h2v8M7 7h10v2H7V7z"/></svg></span>
+            <span class="nav-label">Liquidaciones</span>
+          </button>
         </nav>
 
-        <div class="config-panel">
-          <label for="cfg-tenant">Tenant ID</label>
-          <input id="cfg-tenant" type="text" spellcheck="false" />
-
-          <label for="cfg-org">Organización ID</label>
-          <input id="cfg-org" type="text" spellcheck="false" />
-
-          <label for="cfg-base">API base (vacío = mismo origen)</label>
-          <input id="cfg-base" type="text" spellcheck="false" />
-          <button type="button" class="btn btn-secondary" id="btn-login-open" style="width:100%;margin-top:0.5rem">Iniciar sesión</button>
-          <button type="button" class="btn btn-secondary" id="btn-logout" style="width:100%;margin-top:0.35rem">Cerrar sesión</button>
-        </div>
+        <button type="button" id="sidebar-toggle" class="sidebar-collapse" title="Contraer menú" aria-label="Contraer menú">
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M11 17l-5-5 5-5v10zm2-10v10l5-5-5-5z"/></svg>
+          <span class="collapse-label">Contraer</span>
+        </button>
       </aside>
 
-      <main id="page-content">
-        <p class="loading">Cargando…</p>
-      </main>
+      <div class="main-shell">
+        <header class="app-header">
+          <h1 class="app-header-title" id="page-title">Dashboard</h1>
+          <div class="app-header-actions">
+            <div id="api-status" class="api-pill loading">Conectando…</div>
+            <button type="button" data-page="settings" class="header-icon-btn" title="Configuración" aria-label="Configuración">
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 15.5A3.5 3.5 0 1 0 12 8.5a3.5 3.5 0 0 0 0 7m7.43-2.53c.04-.32.07-.64.07-.97 0-.33-.03-.66-.07-1l2.11-1.63c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.31-.61-.22l-2.49 1c-.52-.4-1.06-.73-1.69-.98l-.37-2.65A.506.506 0 0 0 14 2h-4c-.25 0-.46.18-.5.42l-.37 2.65c-.63.25-1.17.59-1.69.98l-2.49-1c-.22-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64L4.57 11c-.04.34-.07.67-.07 1 0 .33.03.65.07.97l-2.11 1.66c-.19.15-.25.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1.01c.52.4 1.06.74 1.69.99l.37 2.65c.04.24.25.42.5.42h4c.25 0 .46-.18.5-.42l.37-2.65c.63-.26 1.17-.59 1.69-.99l2.49 1.01c.22.08.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64z"/></svg>
+            </button>
+          </div>
+        </header>
+
+        <main id="page-content">
+          <div class="page-inner">
+            <p class="loading">Cargando…</p>
+          </div>
+        </main>
+      </div>
     </div>
 
     <div id="login-modal" class="login-modal hidden">
       <div class="login-card panel">
-        <h2>Iniciar sesión EN1</h2>
-        <p class="loading" style="margin-bottom:1rem">JWT para acceso seguro a la API</p>
+        <div class="brand-block">
+          <img src="/app/img/logo-epayroll.png" alt="EPayRoll" class="brand-logo" width="200" height="100" />
+        </div>
+        <h2>Iniciar sesión</h2>
+        <p class="loading" style="margin-bottom:1rem">Acceso seguro a la API</p>
         <form id="login-form">
           <label>Tenant ID</label>
           <input name="tenant" type="text" required />
@@ -61,6 +95,6 @@
       </div>
     </div>
 
-    <script src="/app/js/bundle.js?v=5" defer></script>
+    <script src="/app/js/bundle.js?v=15" defer></script>
   </body>
 </html>

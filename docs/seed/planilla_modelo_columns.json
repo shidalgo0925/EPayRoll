@@ -1,0 +1,50 @@
+{
+  "version": "1.0",
+  "referencia": "docs/Planilla_modelo.xlsx — hoja PLANILLA CAJA DE SEGUROS SOCIAL",
+  "columnas": [
+    { "key": "ficha", "titulo": "FICHA", "tipo": "texto" },
+    { "key": "nombre_completo", "titulo": "NOMBRE Y APELLIDO", "tipo": "texto" },
+    { "key": "telefono", "titulo": "Celular", "tipo": "texto" },
+    { "key": "cedula", "titulo": "IDENTIFICACION", "tipo": "texto" },
+    { "key": "salario_mensual", "titulo": "SALARIO MENSUAL", "tipo": "moneda" },
+    { "key": "salario_quincenal", "titulo": "SALARIO QUINCENAL", "tipo": "moneda" },
+    { "key": "dias_pago", "titulo": "DIAS DE PAGO", "tipo": "moneda" },
+    { "key": "dias_descuento", "titulo": "DIAS DE DESC.", "tipo": "numero" },
+    { "key": "monto_desc_dias", "titulo": "TOTAL DESCT.", "tipo": "moneda" },
+    { "key": "dev_isr", "titulo": "DEV. ISR", "tipo": "moneda" },
+    { "key": "salario_cotizable", "titulo": "SALARIO", "tipo": "moneda" },
+    { "key": "css_empleado", "titulo": "Seguro Social 9.75%", "tipo": "moneda", "concepto": "CSS_EMPLEADO" },
+    { "key": "se_empleado", "titulo": "Seguro Educ. 1,25%", "tipo": "moneda", "concepto": "SE_EMPLEADO" },
+    { "key": "isr", "titulo": "ISLR", "tipo": "moneda", "concepto": "ISR" },
+    { "key": "cpp_prestaciones", "titulo": "Cpp Prestaciones", "tipo": "moneda" },
+    { "key": "prestamo_empleado", "titulo": "Prestamo Empleados", "tipo": "moneda" },
+    { "key": "desc_prestamo", "titulo": "Desc. Prest.", "tipo": "moneda" },
+    { "key": "descuento_banco", "titulo": "Descuento Banco G.", "tipo": "moneda" },
+    { "key": "saldo_prestamo", "titulo": "Saldo Prestamo", "tipo": "moneda" },
+    { "key": "total_descuentos", "titulo": "Total Desc.", "tipo": "moneda" },
+    { "key": "cancelacion", "titulo": "Cancelacion", "tipo": "moneda" },
+    { "key": "css_patronal", "titulo": "Seg. Soc. Patronal 13.25%", "tipo": "moneda", "concepto": "CSS_EMPLEADOR" },
+    { "key": "se_patronal", "titulo": "Seg. Educativo 1.50%", "tipo": "moneda", "concepto": "SE_EMPLEADOR" },
+    { "key": "riesgo_profesional", "titulo": "Riesgo Prof.", "tipo": "moneda", "concepto": "RIESGO_PROFESIONAL" },
+    { "key": "gastos_empresa", "titulo": "Gastos Empresa", "tipo": "moneda" },
+    { "key": "total_cpp_prest", "titulo": "Total Cpp Prest", "tipo": "moneda" }
+  ],
+  "cuentas_default": [
+    { "concepto_codigo": "SALARIO_BASE", "cuenta_codigo": "62101", "etiqueta": "Salario" },
+    { "concepto_codigo": "CSS_EMPLEADO", "cuenta_codigo": "20200", "etiqueta": "CSS empleado" },
+    { "concepto_codigo": "SE_EMPLEADO", "cuenta_codigo": "20200", "etiqueta": "SE empleado" },
+    { "concepto_codigo": "ISR", "cuenta_codigo": "20200", "etiqueta": "ISR" },
+    { "concepto_codigo": "NETO_PAGAR", "cuenta_codigo": "20901", "etiqueta": "Cancelación" },
+    { "concepto_codigo": "CSS_EMPLEADOR", "cuenta_codigo": "62201", "etiqueta": "CSS patronal" },
+    { "concepto_codigo": "SE_EMPLEADOR", "cuenta_codigo": "62202", "etiqueta": "SE patronal" },
+    { "concepto_codigo": "RIESGO_PROFESIONAL", "cuenta_codigo": "62203", "etiqueta": "Riesgo prof." },
+    { "concepto_codigo": "PRESTAMO_EMPLEADO", "cuenta_codigo": "11200", "etiqueta": "Préstamo" }
+  ],
+  "tasas_default_org": [
+    { "codigo": "CSS_EMPLEADO", "descripcion": "Cuota CSS trabajador", "porcentaje_empleado": 0.0975 },
+    { "codigo": "CSS_EMPLEADOR", "descripcion": "Cuota CSS patronal", "porcentaje_empleador": 0.1325 },
+    { "codigo": "SE_EMPLEADO", "descripcion": "Seguro Educativo trabajador", "porcentaje_empleado": 0.0125 },
+    { "codigo": "SE_EMPLEADOR", "descripcion": "Seguro Educativo patronal", "porcentaje_empleador": 0.015 },
+    { "codigo": "RIESGO_PROFESIONAL", "descripcion": "Riesgo profesional", "porcentaje_empleador": 0.0098 }
+  ]
+}

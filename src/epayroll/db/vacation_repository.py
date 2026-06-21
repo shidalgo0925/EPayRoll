@@ -294,6 +294,7 @@ class VacationRepository:
                 rows = cur.fetchall()
         return [
             {
+                "id": str(r[0]),
                 "request_id": str(r[0]),
                 "fecha_inicio": r[1].isoformat(),
                 "fecha_fin": r[2].isoformat(),
@@ -304,6 +305,71 @@ class VacationRepository:
             }
             for r in rows
         ]
+
+    def get_request(self, request_id: str, database_url: str | None = None) -> dict[str, Any] | None:
+        with get_connection(database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id, employee_id, fecha_inicio, fecha_fin, dias_solicitados, estado::text,
+                           substitute_employee_id
+                    FROM vacation_requests WHERE id = %s::uuid
+                    """,
+                    (request_id,),
+                )
+                row = cur.fetchone()
+                if not row:
+                    return None
+        return {
+            "id": str(row[0]),
+            "request_id": str(row[0]),
+            "employee_id": str(row[1]),
+            "fecha_inicio": row[2].isoformat(),
+            "fecha_fin": row[3].isoformat(),
+            "dias_solicitados": str(row[4]),
+            "estado": row[5],
+            "substitute_employee_id": str(row[6]) if row[6] else None,
+        }
+
+    def update_request(
+        self,
+        request_id: str,
+        fecha_inicio: date,
+        fecha_fin: date,
+        dias_solicitados: Decimal,
+        database_url: str | None = None,
+    ) -> dict[str, str]:
+        if fecha_fin < fecha_inicio:
+            raise ValueError("fecha_fin debe ser >= fecha_inicio")
+        with get_connection(database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE vacation_requests
+                    SET fecha_inicio = %s, fecha_fin = %s, dias_solicitados = %s
+                    WHERE id = %s::uuid AND estado = 'SOLICITADO'
+                    RETURNING id
+                    """,
+                    (fecha_inicio, fecha_fin, dias_solicitados, request_id),
+                )
+                if not cur.fetchone():
+                    raise ValueError("Solicitud no encontrada o no editable")
+        return {"request_id": request_id, "estado": "SOLICITADO"}
+
+    def cancel_request(self, request_id: str, database_url: str | None = None) -> dict[str, str]:
+        with get_connection(database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE vacation_requests SET estado = 'CANCELADO'
+                    WHERE id = %s::uuid AND estado = 'SOLICITADO'
+                    RETURNING id
+                    """,
+                    (request_id,),
+                )
+                if not cur.fetchone():
+                    raise ValueError("Solicitud no encontrada o no cancelable")
+        return {"request_id": request_id, "estado": "CANCELADO"}
 
     def org_dashboard(
         self,

@@ -6,6 +6,7 @@ from decimal import Decimal
 from typing import Any
 
 from epayroll.db.attendance_repository import AttendanceRepository
+from epayroll.db.attendance_facts_repository import AttendanceFactsRepository
 from epayroll.db.incapacity_repository import IncapacityRepository
 from epayroll.db.config_loader import load_config
 from epayroll.db.repositories import ContractRepository, EmployeeRepository, PayrollRepository
@@ -39,6 +40,7 @@ class PayrollService:
         self.contracts_repo = contracts_repo or ContractRepository()
         self.employees_repo = employees_repo or EmployeeRepository()
         self.attendance_repo = attendance_repo or AttendanceRepository()
+        self.attendance_facts_repo = AttendanceFactsRepository()
         self.incapacity_repo = incapacity_repo or IncapacityRepository()
 
     def build_payroll_input(
@@ -130,6 +132,16 @@ class PayrollService:
 
         if not targets:
             raise ValueError("No hay empleados activos para procesar")
+
+        if use_attendance:
+            f_ini = period["fecha_inicio"]
+            f_fin = period["fecha_fin"]
+            proc = self.attendance_facts_repo.process_period_to_daily(org_id, f_ini, f_fin)
+            if not proc.get("employee_count") and proc.get("validation", {}).get("validos", 0) == 0:
+                raise ValueError(
+                    "Sin hechos de asistencia válidos para el período. "
+                    "Importe CSV/API o cargue manualmente antes de correr planilla."
+                )
 
         inputs: list[tuple[str, PayrollInput]] = []
         for emp_id in targets:

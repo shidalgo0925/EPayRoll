@@ -16,8 +16,9 @@ Padre: [EPAYROLL_MASTER_PLAN.md](./EPAYROLL_MASTER_PLAN.md) · Plan de fases: [E
 | **Tests unitarios** | ✅ 75 passed, 1 skipped (`test_db_config` integración BD) |
 | **BD + migraciones** | ✅ 9 migraciones SQL (`001`–`009`) |
 | **Piloto end-to-end con BD** | ✅ Completado en apps srv (2026-06-13) |
-| **Próximo paso operativo** | Firma contador sobre `storage/reports/golden_*.md` |
-| **Próximo paso producto** | Integración EN1 producción (JWKS + OAuth URLs reales) |
+| **Próximo paso operativo** | SIPE portal CSS · validación contador |
+| **Próximo paso producto** | SIPE portal CSS · post-MVP operativo |
+| **Al final del roadmap** | Validación contador — `python scripts/golden_report.py` (GT-01…GT-10, firma ISR/SIPE) |
 
 ### Hitos completados en código
 
@@ -172,7 +173,7 @@ storage/           # payslips/, exports/ (gitignored)
 | Prioridad | Item | Fase | Notas |
 |-----------|------|------|-------|
 | ~~**P0**~~ | ~~Piloto end-to-end en apps srv~~ | 4 | ✅ Checklist §3.4 |
-| ~~**P0**~~ | ~~Validación contador golden tests~~ | 0, 4, 6 | ✅ `python scripts/golden_report.py` → `storage/reports/` |
+| ~~**P0**~~ | ~~Validación contador golden tests~~ | 0, 4, 6 | ⏸️ **Al final** — `golden_report.py` listo |
 | ~~**P0**~~ | ~~Servicio systemd API~~ | DevOps | ✅ `scripts/install_systemd.sh` |
 | ~~**P1**~~ | ~~Auth EN1 + tenant isolation~~ | 1.5 | ✅ stub + JWT (`src/epayroll/auth/`) |
 | ~~**P1**~~ | ~~UI web (React o EN1)~~ | — | ✅ MVP estático `/app` |
@@ -181,8 +182,12 @@ storage/           # payslips/, exports/ (gitignored)
 | ~~**P2**~~ | ~~Sustituciones vacaciones~~ | 5.5 | ✅ API cobertura + sustituto |
 | ~~**P2**~~ | ~~Push automático Odoo API~~ | 7 | ✅ `POST .../odoo/journal/{id}/push` |
 | ~~**P2**~~ | ~~Validación salario mínimo~~ | 1.5 | ✅ GT-07 `compliance/minimum_wage.py` |
-| ~~**P3**~~ | ~~UI dashboard ejecutivo~~ | 8 | ✅ KPIs, alertas, pasivos, proyección liquidaciones |
-| **P3** | ~~Dockerizar API (no solo BD)~~ | DevOps | ✅ `Dockerfile` + servicio `api` en compose |
+| ~~**P3**~~ | ~~UI dashboard ejecutivo~~ | 8 | ✅ KPIs, alertas, pasivos, proyección |
+| ~~**P3**~~ | ~~UI vacaciones + incapacidades~~ | 3, 5 | ✅ Pantallas `/app` |
+| ~~**P3**~~ | ~~Dockerizar API~~ | DevOps | ✅ `Dockerfile` + compose |
+| ~~**P1**~~ | ~~UI liquidaciones~~ | 4 | ✅ Pantalla `/app` — GT-05/GT-06 |
+| ~~**P1**~~ | ~~Operación multi-empleado~~ | 4 | ✅ Alta + contrato, corrida batch multi-emp |
+| **P2** | SIPE portal CSS | 6 | Prueba en ambiente CSS |
 
 ---
 
@@ -246,7 +251,7 @@ Ver `.env.example` en la raíz del repo.
 | 2026-06-13 | Intento Docker en PC local — falló (CLI no instalada). |
 | 2026-06-13 | Piloto end-to-end apps srv completado (puertos 5433/8001). |
 | 2026-06-13 | Sustituciones vacaciones + push Odoo API. 70 tests pass. |
-| 2026-06-13 | EN1 SSO completo: JWKS, OAuth exchange, RBAC, UI. 75 tests pass. |
+| 2026-06-21 | Planilla operador: vista 26 cols, config legal por org, export Excel, ficha/teléfono. |
 
 ---
 

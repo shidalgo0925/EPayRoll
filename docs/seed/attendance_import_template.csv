@@ -1,0 +1,3 @@
+cedula,fecha,turno,hora_entrada,hora_salida,descanso_minutos,tipo_dia,ausencia,incapacidad,vacaciones,observacion
+8-888-8888,2026-06-16,DIURNO,07:58,17:12,60,NORMAL,false,false,false,
+8-888-8888,2026-06-17,DIURNO,08:05,17:05,60,NORMAL,false,false,false,llegó tarde

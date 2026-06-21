@@ -12,6 +12,7 @@ from epayroll.engine.deductions import validate_art161
 from epayroll.engine.orchestrator import LineResult, PayrollEngine, PayrollResult
 
 from epayroll.compliance.minimum_wage import validate_salary_base
+from epayroll.db.config_loader import load_config
 from .connection import get_connection
 
 
@@ -23,6 +24,42 @@ class EmployeeRecord:
     nombres: str
     apellidos: str
     activo: bool
+    email: str | None = None
+    ficha: str | None = None
+    telefono: str | None = None
+    fecha_nacimiento: date | None = None
+    estado_civil: str | None = None
+    direccion: str | None = None
+    salario_base: Decimal | None = None
+    forma_pago: str | None = None
+    fecha_inicio_contrato: date | None = None
+    contract_type_codigo: str | None = None
+    banco: str | None = None
+    cuenta_bancaria: str | None = None
+
+
+_EMP_SELECT = """
+    e.id, e.organization_id, e.cedula, e.nombres, e.apellidos, e.activo,
+    e.email, e.ficha, e.telefono, e.fecha_nacimiento, e.estado_civil, e.direccion,
+    c.salario_base, c.forma_pago::text, c.fecha_inicio, ct.codigo,
+    ba.banco, ba.numero_cuenta
+"""
+
+_EMP_JOINS = """
+    FROM employees e
+    LEFT JOIN LATERAL (
+        SELECT salario_base, forma_pago, fecha_inicio, contract_type_id
+        FROM contracts
+        WHERE employee_id = e.id AND estado = 'ACTIVO'
+        ORDER BY fecha_inicio DESC LIMIT 1
+    ) c ON true
+    LEFT JOIN contract_types ct ON ct.id = c.contract_type_id
+    LEFT JOIN LATERAL (
+        SELECT banco, numero_cuenta FROM employee_bank_accounts
+        WHERE employee_id = e.id AND activo = true
+        ORDER BY created_at DESC LIMIT 1
+    ) ba ON true
+"""
 
 
 @dataclass
@@ -43,6 +80,11 @@ class EmployeeRepository:
         nombres: str,
         apellidos: str,
         email: str | None = None,
+        ficha: str | None = None,
+        telefono: str | None = None,
+        fecha_nacimiento: date | None = None,
+        estado_civil: str | None = None,
+        direccion: str | None = None,
         database_url: str | None = None,
     ) -> EmployeeRecord:
         emp_id = str(uuid.uuid4())
@@ -50,30 +92,153 @@ class EmployeeRepository:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO employees (id, organization_id, cedula, nombres, apellidos, email)
-                    VALUES (%s::uuid, %s::uuid, %s, %s, %s, %s)
-                    RETURNING id, organization_id, cedula, nombres, apellidos, activo
+                    INSERT INTO employees (
+                        id, organization_id, cedula, nombres, apellidos, email,
+                        ficha, telefono, fecha_nacimiento, estado_civil, direccion
+                    )
+                    VALUES (%s::uuid, %s::uuid, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING id
                     """,
-                    (emp_id, organization_id, cedula, nombres, apellidos, email),
+                    (
+                        emp_id,
+                        organization_id,
+                        cedula,
+                        nombres,
+                        apellidos,
+                        email,
+                        ficha,
+                        telefono,
+                        fecha_nacimiento,
+                        estado_civil,
+                        direccion,
+                    ),
                 )
-                row = cur.fetchone()
-        return EmployeeRecord(str(row[0]), str(row[1]), row[2], row[3], row[4], row[5])
+                emp_id = str(cur.fetchone()[0])
+        return self.get_by_id(emp_id, database_url=database_url)  # type: ignore[return-value]
+
+    @staticmethod
+    def _row_to_record(row) -> EmployeeRecord:
+        return EmployeeRecord(
+            id=str(row[0]),
+            organization_id=str(row[1]),
+            cedula=row[2],
+            nombres=row[3],
+            apellidos=row[4],
+            activo=row[5],
+            email=row[6],
+            ficha=row[7],
+            telefono=row[8],
+            fecha_nacimiento=row[9],
+            estado_civil=row[10],
+            direccion=row[11],
+            salario_base=Decimal(str(row[12])) if row[12] is not None else None,
+            forma_pago=row[13],
+            fecha_inicio_contrato=row[14],
+            contract_type_codigo=row[15],
+            banco=row[16],
+            cuenta_bancaria=row[17],
+        )
 
     def list_by_org(self, organization_id: str, database_url: str | None = None) -> list[EmployeeRecord]:
         with get_connection(database_url) as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    """
-                    SELECT id, organization_id, cedula, nombres, apellidos, activo
-                    FROM employees WHERE organization_id = %s::uuid AND activo = true
-                    ORDER BY apellidos, nombres
+                    f"""
+                    SELECT {_EMP_SELECT}
+                    {_EMP_JOINS}
+                    WHERE e.organization_id = %s::uuid AND e.activo = true
+                    ORDER BY COALESCE(e.ficha, ''), e.apellidos, e.nombres
                     """,
                     (organization_id,),
                 )
-                return [
-                    EmployeeRecord(str(r[0]), str(r[1]), r[2], r[3], r[4], r[5])
-                    for r in cur.fetchall()
-                ]
+                return [self._row_to_record(r) for r in cur.fetchall()]
+
+    def get_by_id(self, employee_id: str, database_url: str | None = None) -> EmployeeRecord | None:
+        with get_connection(database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    SELECT {_EMP_SELECT}
+                    {_EMP_JOINS}
+                    WHERE e.id = %s::uuid
+                    """,
+                    (employee_id,),
+                )
+                row = cur.fetchone()
+                if not row:
+                    return None
+        return self._row_to_record(row)
+
+    def update(
+        self,
+        employee_id: str,
+        *,
+        cedula: str | None = None,
+        nombres: str | None = None,
+        apellidos: str | None = None,
+        email: str | None = None,
+        ficha: str | None = None,
+        telefono: str | None = None,
+        fecha_nacimiento: date | None = None,
+        estado_civil: str | None = None,
+        direccion: str | None = None,
+        database_url: str | None = None,
+    ) -> EmployeeRecord:
+        fields: list[str] = []
+        values: list[Any] = []
+        if cedula is not None:
+            fields.append("cedula = %s")
+            values.append(cedula)
+        if nombres is not None:
+            fields.append("nombres = %s")
+            values.append(nombres)
+        if apellidos is not None:
+            fields.append("apellidos = %s")
+            values.append(apellidos)
+        if email is not None:
+            fields.append("email = %s")
+            values.append(email or None)
+        if ficha is not None:
+            fields.append("ficha = %s")
+            values.append(ficha or None)
+        if telefono is not None:
+            fields.append("telefono = %s")
+            values.append(telefono or None)
+        if fecha_nacimiento is not None:
+            fields.append("fecha_nacimiento = %s")
+            values.append(fecha_nacimiento)
+        if estado_civil is not None:
+            fields.append("estado_civil = %s")
+            values.append(estado_civil or None)
+        if direccion is not None:
+            fields.append("direccion = %s")
+            values.append(direccion or None)
+        if not fields:
+            raise ValueError("Sin campos para actualizar")
+        values.append(employee_id)
+        with get_connection(database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    UPDATE employees SET {", ".join(fields)}
+                    WHERE id = %s::uuid AND activo = true
+                    RETURNING id
+                    """,
+                    values,
+                )
+                if not cur.fetchone():
+                    raise ValueError("Empleado no encontrado")
+        return self.get_by_id(employee_id, database_url=database_url)  # type: ignore[return-value]
+
+    def deactivate(self, employee_id: str, database_url: str | None = None) -> None:
+        with get_connection(database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE employees SET activo = false WHERE id = %s::uuid AND activo = true",
+                    (employee_id,),
+                )
+                if cur.rowcount == 0:
+                    raise ValueError("Empleado no encontrado")
 
 
 class ContractRepository:
@@ -198,6 +363,37 @@ class PayrollRepository:
             "fecha_pago": row[5],
             "estado": row[6],
         }
+
+    def list_periods(
+        self,
+        organization_id: str,
+        limit: int = 30,
+        database_url: str | None = None,
+    ) -> list[dict[str, Any]]:
+        with get_connection(database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id, tipo::text, fecha_inicio, fecha_fin, fecha_pago, estado::text
+                    FROM payroll_periods
+                    WHERE organization_id = %s::uuid
+                    ORDER BY fecha_inicio DESC
+                    LIMIT %s
+                    """,
+                    (organization_id, limit),
+                )
+                rows = cur.fetchall()
+        return [
+            {
+                "id": str(r[0]),
+                "tipo": r[1],
+                "fecha_inicio": r[2].isoformat(),
+                "fecha_fin": r[3].isoformat(),
+                "fecha_pago": r[4].isoformat(),
+                "estado": r[5],
+            }
+            for r in rows
+        ]
 
     def get_latest_run_id(self, payroll_period_id: str, database_url: str | None = None) -> str | None:
         with get_connection(database_url) as conn:

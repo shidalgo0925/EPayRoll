@@ -88,6 +88,75 @@ class IncapacityRepository:
             for r in rows
         ]
 
+    def get(self, incapacity_id: str, database_url: str | None = None) -> dict[str, Any] | None:
+        with get_connection(database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id, employee_id, fecha_inicio, fecha_fin, tipo, certificado_ref,
+                           dias_subsidio_css, created_at
+                    FROM incapacities WHERE id = %s::uuid
+                    """,
+                    (incapacity_id,),
+                )
+                row = cur.fetchone()
+                if not row:
+                    return None
+        return {
+            "id": str(row[0]),
+            "employee_id": str(row[1]),
+            "fecha_inicio": row[2].isoformat(),
+            "fecha_fin": row[3].isoformat(),
+            "tipo": row[4],
+            "certificado_ref": row[5],
+            "dias_subsidio_css": row[6],
+            "created_at": row[7].isoformat(),
+        }
+
+    def update(
+        self,
+        incapacity_id: str,
+        *,
+        fecha_inicio: date,
+        fecha_fin: date,
+        tipo: str = "CSS",
+        certificado_ref: str | None = None,
+        dias_subsidio_css: int | None = None,
+        database_url: str | None = None,
+    ) -> dict[str, Any]:
+        if fecha_fin < fecha_inicio:
+            raise ValueError("fecha_fin debe ser >= fecha_inicio")
+        cfg = load_incapacity_config()
+        if tipo not in cfg.get("tipos", []):
+            raise ValueError(f"Tipo incapacidad inválido: {tipo}")
+        dias = count_calendar_days(fecha_inicio, fecha_fin)
+        if dias_subsidio_css is None and tipo == "CSS":
+            dias_subsidio_css = max(0, dias - int(cfg["pago_incapacidad"]["dias_empleador_fondo"]))
+        with get_connection(database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE incapacities
+                    SET fecha_inicio = %s, fecha_fin = %s, tipo = %s,
+                        certificado_ref = %s, dias_subsidio_css = %s
+                    WHERE id = %s::uuid
+                    RETURNING id
+                    """,
+                    (fecha_inicio, fecha_fin, tipo, certificado_ref, dias_subsidio_css, incapacity_id),
+                )
+                if not cur.fetchone():
+                    raise ValueError("Incapacidad no encontrada")
+        result = self.get(incapacity_id, database_url=database_url)
+        assert result is not None
+        return result
+
+    def delete(self, incapacity_id: str, database_url: str | None = None) -> None:
+        with get_connection(database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM incapacities WHERE id = %s::uuid", (incapacity_id,))
+                if cur.rowcount == 0:
+                    raise ValueError("Incapacidad no encontrada")
+
     def _jornadas_trabajadas_anio(
         self,
         employee_id: str,

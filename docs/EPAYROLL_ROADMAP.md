@@ -12,10 +12,10 @@
 
 | | |
 |---|---|
-| **Hecho** | Fases 0–8 en código + 40 tests unitarios |
-| **Bloqueado** | Piloto BD en PC local (sin Docker) |
-| **Siguiente** | Bootstrap en **apps srv** → checklist piloto en [EPAYROLL_STATUS §3.4](./EPAYROLL_STATUS.md#34-piloto-end-to-end-checklist--siguiente-tarea) |
-| **Después** | Auth EN1, UI web, validación contador |
+| **Hecho** | Fases 0–8 en código + UI `/app` + piloto apps srv |
+| **Tests** | 75 passed (+ 1 skipped BD) |
+| **Siguiente** | UI liquidaciones · operación multi-empleado · SIPE portal CSS |
+| **Al final** | **Fase 0 cierre** — validación y firma contador (`scripts/golden_report.py`) |
 
 ---
 
@@ -79,7 +79,7 @@
 
 - [x] Migraciones ejecutan limpio (`database/migrations/`)
 - [x] Seed catálogos base desde JSON
-- [ ] Migraciones verificadas en PostgreSQL — pendiente en apps srv (ver [EPAYROLL_STATUS](./EPAYROLL_STATUS.md))
+- [x] Migraciones verificadas en PostgreSQL (apps srv, 001–009)
 
 ---
 
@@ -92,15 +92,15 @@
 | 1.5.3 | Catálogos org (riesgo CSS) | ✅ seed demo |
 | 1.5.4 | Períodos + corrida persistente | ✅ |
 | 1.5.5 | Config legal desde PostgreSQL | ✅ |
-| 1.5.6 | Auth EN1 / UI | ⏳ |
+| 1.5.6 | Auth + UI web | ✅ API key login + `/app` (5 pantallas) |
 
 ### Criterio de salida Fase 1.5
 
 - [x] Alta empleado + contrato vía API
 - [x] Corrida persiste en `payroll_runs` / `payroll_lines`
 - [x] Config desde BD con fallback JSON
-- [ ] Validación salario mínimo
-- [ ] Tenant isolation EN1
+- [x] Validación salario mínimo
+- [x] Tenant isolation (stub/JWT)
 
 ---
 
@@ -132,7 +132,7 @@
 | 3.2 | Marcaciones manuales | ✅ |
 | 3.3 | Cálculo diario: ordinarias + extras (Arts. 33, 36) | ✅ |
 | 3.4 | Feriados y domingos (Arts. 48, 49) | ✅ |
-| 3.5 | Incapacidades + fondo licencia (Art. 200) | ⏳ |
+| 3.5 | Incapacidades + fondo licencia (Art. 200) | ✅ |
 
 ### Criterio de salida
 
@@ -159,7 +159,7 @@ Fase 4 puede iniciar con entrada manual de días/horas si Fase 3 no está comple
 ### Criterio de salida
 
 - [x] GT-01, GT-04, GT-05, GT-06, GT-09 pasan
-- [ ] Planilla quincenal end-to-end para 1 empresa piloto — ver [EPAYROLL_STATUS §3.4](./EPAYROLL_STATUS.md#34-piloto-end-to-end-checklist--siguiente-tarea) (apps srv)
+- [x] Planilla quincenal end-to-end para 1 empresa piloto — [EPAYROLL_STATUS §3.4](./EPAYROLL_STATUS.md#34-piloto-end-to-end-checklist)
 
 ---
 
@@ -171,7 +171,7 @@ Fase 4 puede iniciar con entrada manual de días/horas si Fase 3 no está comple
 | 5.2 | Programación con alerta 2 meses (Art. 57) | ✅ |
 | 5.3 | Control acumulación máx 2 períodos (Art. 59) | ✅ |
 | 5.4 | Dashboard pasivo vacaciones | ✅ |
-| 5.5 | Sustituciones / cobertura (MVP simple) | ⏳ |
+| 5.5 | Sustituciones / cobertura (MVP simple) | ✅ |
 
 ### Criterio de salida
 
@@ -210,7 +210,7 @@ Fase 4 puede iniciar con entrada manual de días/horas si Fase 3 no está comple
 
 - [x] ACH generado desde corrida con cuentas bancarias
 - [x] Asiento Odoo JSON balanceado desde corrida
-- [ ] Push automatico a Odoo API (backlog — payload JSON listo)
+- [x] Push automatico a Odoo API
 
 ---
 
@@ -229,7 +229,7 @@ Fase 4 puede iniciar con entrada manual de días/horas si Fase 3 no está comple
 - [x] Pasivos consolidados (vacaciones + décimo + prima + indemnización contingente)
 - [x] Proyección liquidación por empleado activo
 - [x] Dashboard con alertas configurables (`docs/seed/analytics_config.json`)
-- [ ] UI ejecutiva (backlog — API JSON lista)
+- [x] UI ejecutiva + vacaciones + incapacidades (`/app`)
 
 ---
 

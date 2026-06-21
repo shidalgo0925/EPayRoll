@@ -53,6 +53,23 @@ class EmployeeCreate(BaseModel):
     nombres: str
     apellidos: str
     email: str | None = None
+    ficha: str | None = None
+    telefono: str | None = None
+    fecha_nacimiento: date | None = None
+    estado_civil: str | None = None
+    direccion: str | None = None
+
+
+class EmployeeUpdate(BaseModel):
+    cedula: str | None = None
+    nombres: str | None = None
+    apellidos: str | None = None
+    email: str | None = None
+    ficha: str | None = None
+    telefono: str | None = None
+    fecha_nacimiento: date | None = None
+    estado_civil: str | None = None
+    direccion: str | None = None
 
 
 class EmployeeResponse(BaseModel):
@@ -61,7 +78,20 @@ class EmployeeResponse(BaseModel):
     cedula: str
     nombres: str
     apellidos: str
+    email: str | None = None
+    ficha: str | None = None
+    telefono: str | None = None
+    fecha_nacimiento: date | None = None
+    estado_civil: str | None = None
+    direccion: str | None = None
     activo: bool
+    salario_base: Decimal | None = None
+    salario_quincenal: Decimal | None = None
+    forma_pago: str | None = None
+    fecha_inicio_contrato: date | None = None
+    contract_type_codigo: str | None = None
+    banco: str | None = None
+    cuenta_bancaria: str | None = None
 
 
 class ContractCreate(BaseModel):
@@ -143,6 +173,12 @@ class VacationRequestCreate(BaseModel):
     dias_solicitados: Decimal
 
 
+class VacationRequestUpdate(BaseModel):
+    fecha_inicio: date
+    fecha_fin: date
+    dias_solicitados: Decimal
+
+
 class VacationApproveRequest(BaseModel):
     substitute_employee_id: str | None = None
     aprobado_por: str | None = None
@@ -187,7 +223,49 @@ class AttendanceCalculateRequest(BaseModel):
     fecha_fin: date
 
 
+class AttendanceFactCreate(BaseModel):
+    cedula: str | None = None
+    employee_id: str | None = None
+    fecha: date
+    turno: str = "DIURNO"
+    hora_entrada: str | None = None
+    hora_salida: str | None = None
+    descanso_minutos: int = 0
+    tipo_dia: str = "NORMAL"
+    ausencia: bool = False
+    incapacidad: bool = False
+    vacaciones: bool = False
+    observacion: str | None = None
+    fuente: str = "MANUAL"
+
+
+class AttendanceFactsImportRequest(BaseModel):
+    csv_content: str
+    fuente: str = "CSV"
+    nombre_archivo: str | None = None
+    fecha_inicio: date | None = None
+    fecha_fin: date | None = None
+
+
+class AttendanceFactsBulkRequest(BaseModel):
+    facts: list[AttendanceFactCreate]
+    fuente: str = "API"
+
+
+class AttendancePeriodProcessRequest(BaseModel):
+    fecha_inicio: date
+    fecha_fin: date
+
+
 class IncapacityCreate(BaseModel):
+    fecha_inicio: date
+    fecha_fin: date
+    tipo: str = "CSS"
+    certificado_ref: str | None = None
+    dias_subsidio_css: int | None = None
+
+
+class IncapacityUpdate(BaseModel):
     fecha_inicio: date
     fecha_fin: date
     tipo: str = "CSS"
@@ -208,3 +286,29 @@ class HealthResponse(BaseModel):
 
 class MessageResponse(BaseModel):
     detail: str
+
+
+class LegalRateUpsert(BaseModel):
+    codigo: str
+    descripcion: str | None = None
+    porcentaje_empleado: Decimal | None = None
+    porcentaje_empleador: Decimal | None = None
+    vigencia_desde: date | None = None
+
+
+class AccountCodeUpsert(BaseModel):
+    concepto_codigo: str
+    cuenta_codigo: str
+    etiqueta: str | None = None
+
+
+class PayrollAdjustmentUpdate(BaseModel):
+    dias_trabajados: Decimal | None = None
+    dias_descuento: Decimal = Decimal("0")
+    monto_desc_dias: Decimal = Decimal("0")
+    dev_isr: Decimal = Decimal("0")
+    prestamo_empleado: Decimal = Decimal("0")
+    desc_prestamo: Decimal = Decimal("0")
+    descuento_banco: Decimal = Decimal("0")
+    saldo_prestamo: Decimal = Decimal("0")
+    notas: str | None = None
