@@ -85,8 +85,8 @@ body {
   display: block;
   width: 100%;
   height: 56px;
-  object-fit: cover;
-  object-position: center 88%;
+  object-fit: contain;
+  object-position: center center;
 }
 
 .brand-logo-sm {
@@ -212,7 +212,7 @@ body {
 
 .layout.sidebar-collapsed .brand-logo-sidebar {
   height: 40px;
-  object-position: center 22%;
+  object-position: center center;
 }
 
 .main-shell {
@@ -309,10 +309,10 @@ body {
 
 .brand-logo {
   width: 100%;
-  max-width: 260px;
-  max-height: 140px;
+  max-width: 320px;
+  max-height: 160px;
   object-fit: contain;
-  object-position: center bottom;
+  object-position: center center;
   display: block;
   margin: 0 auto;
 }
