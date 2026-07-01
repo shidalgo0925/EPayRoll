@@ -6,6 +6,7 @@
   const DEMO_ORG = "00000000-0000-0000-0000-000000000010";
   const FETCH_TIMEOUT_MS = 15000;
   const SIDEBAR_KEY = "epayroll_sidebar_collapsed";
+  const ORG_CACHE_KEY = "epayroll_orgs_cache";
 
   const PAGE_TITLES = {
     dashboard: "Dashboard",
@@ -26,10 +27,91 @@
       localStorage.setItem("epayroll_api_base", "");
     }
     return {
-      tenantId: localStorage.getItem("epayroll_tenant_id") || DEMO_TENANT,
-      orgId: localStorage.getItem("epayroll_org_id") || DEMO_ORG,
+      tenantId: localStorage.getItem("epayroll_tenant_id") || "",
+      orgId: localStorage.getItem("epayroll_org_id") || "",
       apiBase,
     };
+  }
+
+  function requireOrgId() {
+    const orgId = getConfig().orgId;
+    if (!orgId) {
+      throw new Error("Seleccione una empresa en el encabezado o inicie sesión.");
+    }
+    return orgId;
+  }
+
+  function clearPayrollSessionState() {
+    localStorage.removeItem("epayroll_period_id");
+    localStorage.removeItem("epayroll_run_id");
+    localStorage.removeItem("epayroll_employee_id");
+    if (typeof payrollState !== "undefined") {
+      payrollState.periodId = "";
+      payrollState.runId = "";
+      payrollState.employeeId = "";
+    }
+  }
+
+  function renderOrgSelectOptions(selectEl, orgs, activeId) {
+    if (!selectEl) return;
+    if (!orgs.length) {
+      selectEl.innerHTML = `<option value="">— Sin empresas en este tenant —</option>`;
+      selectEl.disabled = true;
+      return;
+    }
+    selectEl.disabled = false;
+    selectEl.innerHTML = orgs
+      .map(
+        (o) =>
+          `<option value="${escHtml(o.id)}"${o.id === activeId ? " selected" : ""}>${escHtml(o.razon_social)}</option>`
+      )
+      .join("");
+  }
+
+  async function fetchOrganizations() {
+    const orgs = await api("/api/v1/me/organizations");
+    localStorage.setItem(ORG_CACHE_KEY, JSON.stringify(orgs));
+    return orgs;
+  }
+
+  async function refreshOrgSwitcher() {
+    const sel = document.getElementById("org-switcher");
+    if (!sel) return [];
+    const cfg = getConfig();
+    if (!getJwt() && !cfg.tenantId) {
+      sel.innerHTML = `<option value="">— Inicie sesión —</option>`;
+      sel.disabled = true;
+      return [];
+    }
+    try {
+      const orgs = await fetchOrganizations();
+      renderOrgSelectOptions(sel, orgs, cfg.orgId);
+      return orgs;
+    } catch {
+      let cached = [];
+      try {
+        cached = JSON.parse(localStorage.getItem(ORG_CACHE_KEY) || "[]");
+      } catch {
+        cached = [];
+      }
+      renderOrgSelectOptions(sel, cached, cfg.orgId);
+      return cached;
+    }
+  }
+
+  function switchOrganization(orgId) {
+    if (!orgId || orgId === getConfig().orgId) return;
+    saveConfig({ orgId });
+    clearPayrollSessionState();
+    const activePage = document.querySelector("[data-page].active")?.dataset.page || "dashboard";
+    navigate(activePage);
+  }
+
+  function initOrgSwitcher() {
+    const sel = document.getElementById("org-switcher");
+    if (!sel) return;
+    sel.onchange = () => switchOrganization(sel.value);
+    refreshOrgSwitcher();
   }
 
   function saveConfig({ tenantId, orgId, apiBase }) {
@@ -286,7 +368,7 @@
   async function loadDashboard(container, fechaInicio, fechaFin) {
     const cfg = getConfig();
     const data = await api(
-      `/api/v1/organizations/${cfg.orgId || DEMO_ORG}/analytics/dashboard?fecha_inicio=${fechaInicio}&fecha_fin=${fechaFin}`
+      `/api/v1/organizations/${requireOrgId()}/analytics/dashboard?fecha_inicio=${fechaInicio}&fecha_fin=${fechaFin}`
     );
 
     const kpis = data.kpis || {};
@@ -416,14 +498,14 @@
       container.innerHTML = `
         <div class="page-header page-header-sub"><h1>Dashboard ejecutivo</h1></div>
         <div class="alert alert-error">${e.message}</div>
-        <p class="loading">Verifica tenant/org en Configuración. Tenant demo: ${DEMO_TENANT}</p>`;
+        <p class="loading">Inicie sesión y seleccione una empresa. Los datos están aislados por tenant.</p>`;
     }
   }
 
   async function renderEmployees(container) {
     container.innerHTML = `<p class="loading">Cargando empleados…</p>`;
     const cfg = getConfig();
-    const orgId = cfg.orgId || DEMO_ORG;
+    const orgId = requireOrgId();
     try {
       const rows = await api(`/api/v1/organizations/${orgId}/employees`);
       container.innerHTML = `
@@ -754,7 +836,7 @@
   async function renderPeriods(container) {
     container.innerHTML = `<p class="loading">Cargando períodos…</p>`;
     const cfg = getConfig();
-    const orgId = cfg.orgId || DEMO_ORG;
+    const orgId = requireOrgId();
     try {
       const rows = await api(`/api/v1/organizations/${orgId}/payroll-periods`);
       const activeId = payrollState.periodId || localStorage.getItem("epayroll_period_id") || "";
@@ -1005,7 +1087,7 @@
 
   async function renderPayroll(container) {
     const cfg = getConfig();
-    const orgId = cfg.orgId || DEMO_ORG;
+    const orgId = requireOrgId();
     container.innerHTML = `<p class="loading">Cargando planilla…</p>`;
     let employees = [];
     try {
@@ -1284,7 +1366,7 @@
 
   async function fetchOrgEmployees() {
     const cfg = getConfig();
-    return api(`/api/v1/organizations/${cfg.orgId || DEMO_ORG}/employees`);
+    return api(`/api/v1/organizations/${requireOrgId()}/employees`);
   }
 
   function employeeOptions(employees, selectedId) {
@@ -1570,7 +1652,7 @@
   async function renderVacations(container) {
     container.innerHTML = `<p class="loading">Cargando vacaciones…</p>`;
     const cfg = getConfig();
-    const orgId = cfg.orgId || DEMO_ORG;
+    const orgId = requireOrgId();
     let empId = payrollState.employeeId;
     try {
       const [employees, dash, coverage] = await Promise.all([
@@ -2219,7 +2301,7 @@
 
   async function renderAttendance(container) {
     const cfg = getConfig();
-    const orgId = cfg.orgId || DEMO_ORG;
+    const orgId = requireOrgId();
     container.innerHTML = `<p class="loading">Cargando asistencia…</p>`;
 
     let defaultIni = "";
@@ -2664,7 +2746,7 @@
   async function renderLiquidations(container) {
     container.innerHTML = `<p class="loading">Cargando liquidaciones…</p>`;
     const cfg = getConfig();
-    const orgId = cfg.orgId || DEMO_ORG;
+    const orgId = requireOrgId();
     let empId = payrollState.employeeId;
     try {
       const [employees, cases] = await Promise.all([
@@ -2915,19 +2997,20 @@
           </div>
         </div>
         <div class="panel settings-section">
-          <h2>Organización</h2>
+          <h2>Tenant y empresa</h2>
           <div class="field">
             <label for="cfg-tenant">Tenant ID</label>
             <input id="cfg-tenant" type="text" spellcheck="false" value="${cfg.tenantId.replace(/"/g, "&quot;")}" />
           </div>
           <div class="field">
-            <label for="cfg-org">Organización ID</label>
-            <input id="cfg-org" type="text" spellcheck="false" value="${cfg.orgId.replace(/"/g, "&quot;")}" />
+            <label for="cfg-org">Empresa activa</label>
+            <select id="cfg-org"></select>
           </div>
-          <p class="settings-hint">Demo seed: tenant <code>${DEMO_TENANT}</code> · org <code>${DEMO_ORG}</code></p>
+          <p class="settings-hint">Demo: tenant <code>${DEMO_TENANT}</code>. Las empresas se cargan solo del tenant autenticado.</p>
           <div class="settings-actions">
             <button type="button" class="btn" id="cfg-save">Guardar</button>
             <button type="button" class="btn btn-secondary" id="cfg-reset-demo">Restaurar demo</button>
+            <button type="button" class="btn btn-secondary" id="cfg-org-create">Nueva empresa</button>
           </div>
           <div id="cfg-save-msg"></div>
         </div>
@@ -2954,11 +3037,15 @@
         </div>
       </div>`;
 
+    const cfgOrgSelect = document.getElementById("cfg-org");
+    refreshOrgSwitcher().then((orgs) => renderOrgSelectOptions(cfgOrgSelect, orgs, cfg.orgId));
+
     const persist = (msg) => {
       const tenant = document.getElementById("cfg-tenant").value.trim();
       const org = document.getElementById("cfg-org").value.trim();
       const apiBase = document.getElementById("cfg-base").value.trim();
       saveConfig({ tenantId: tenant, orgId: org, apiBase });
+      refreshOrgSwitcher();
       checkHealth();
       if (msg) {
         const el = document.getElementById("cfg-save-msg");
@@ -2970,9 +3057,29 @@
     document.getElementById("cfg-save").onclick = () => persist("Configuración guardada");
     document.getElementById("cfg-reset-demo").onclick = () => {
       document.getElementById("cfg-tenant").value = DEMO_TENANT;
-      document.getElementById("cfg-org").value = DEMO_ORG;
       document.getElementById("cfg-base").value = "";
-      persist("Valores demo restaurados");
+      saveConfig({ tenantId: DEMO_TENANT, orgId: "", apiBase: "" });
+      setJwt("");
+      document.getElementById("login-modal").classList.remove("hidden");
+      persist("Tenant demo restaurado — inicie sesión y elija empresa");
+    };
+    document.getElementById("cfg-org-create").onclick = async () => {
+      const nombre = prompt("Razón social de la nueva empresa:");
+      if (!nombre?.trim()) return;
+      const ruc = prompt("RUC (opcional):") || null;
+      try {
+        const created = await api("/api/v1/me/organizations", {
+          method: "POST",
+          body: JSON.stringify({ razon_social: nombre.trim(), ruc: ruc?.trim() || null }),
+        });
+        const orgs = await refreshOrgSwitcher();
+        renderOrgSelectOptions(cfgOrgSelect, orgs, created.id);
+        renderOrgSelectOptions(document.getElementById("org-switcher"), orgs, created.id);
+        saveConfig({ orgId: created.id });
+        flashMsg("cfg-save-msg", `Empresa «${created.razon_social}» creada`, true);
+      } catch (e) {
+        flashMsg("cfg-save-msg", e.message, false);
+      }
     };
     document.getElementById("cfg-test").onclick = async () => {
       const el = document.getElementById("cfg-health");
@@ -2989,20 +3096,23 @@
     document.getElementById("btn-login-open").onclick = () => {
       const modal = document.getElementById("login-modal");
       const form = document.getElementById("login-form");
-      form.tenant.value = getConfig().tenantId;
-      form.org.value = getConfig().orgId;
+      form.tenant.value = getConfig().tenantId || DEMO_TENANT;
       modal.classList.remove("hidden");
     };
     document.getElementById("btn-logout").onclick = () => {
       setJwt("");
       setRefreshToken("");
+      saveConfig({ orgId: "" });
+      localStorage.removeItem(ORG_CACHE_KEY);
+      clearPayrollSessionState();
       document.getElementById("session-badge").className = "session-badge guest";
       document.getElementById("session-badge").textContent = sessionLabel();
+      refreshOrgSwitcher();
       document.getElementById("login-modal").classList.remove("hidden");
     };
 
     const renderLegal = async () => {
-      const orgId = document.getElementById("cfg-org").value.trim() || DEMO_ORG;
+      const orgId = document.getElementById("cfg-org").value.trim() || requireOrgId();
       const box = document.getElementById("cfg-legal-content");
       box.innerHTML = `<p class="loading">Cargando…</p>`;
       try {
@@ -3023,7 +3133,7 @@
     };
     document.getElementById("cfg-legal-load").onclick = renderLegal;
     document.getElementById("cfg-legal-seed").onclick = async () => {
-      const orgId = document.getElementById("cfg-org").value.trim() || DEMO_ORG;
+      const orgId = document.getElementById("cfg-org").value.trim() || requireOrgId();
       try {
         await api(`/api/v1/organizations/${orgId}/legal/seed-defaults`, { method: "POST", body: "{}" });
         await renderLegal();
@@ -3098,23 +3208,48 @@
   async function doLogin(form) {
     const cfg = getConfig();
     const base = cfg.apiBase.replace(/\/$/, "");
+    const tenantId = form.tenant.value.trim();
     const res = await fetch(`${base}/api/v1/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        tenant_id: form.tenant.value.trim(),
+        tenant_id: tenantId,
         organization_id: form.org.value.trim() || null,
         user_id: form.user.value.trim() || "ui-user",
         api_key: form.apikey.value,
+        roles: ["payroll_admin", "rrhh", "contador", "tenant_admin"],
       }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || "Login fallido");
     setJwt(data.access_token);
-    saveConfig({ tenantId: form.tenant.value.trim(), orgId: form.org.value.trim(), apiBase: cfg.apiBase });
+    saveConfig({ tenantId, apiBase: cfg.apiBase });
+
+    const orgs = data.organizations?.length ? data.organizations : await fetchOrganizations();
+    const loginOrgSelect = document.getElementById("login-org-select");
+    renderOrgSelectOptions(loginOrgSelect, orgs, form.org.value.trim() || getConfig().orgId);
+
+    let orgId = form.org.value.trim();
+    if (!orgId && orgs.length === 1) orgId = orgs[0].id;
+    if (!orgId && orgs.length > 1) {
+      const err = document.getElementById("login-error");
+      err.classList.remove("hidden");
+      err.textContent = "Seleccione la empresa en la lista y pulse Entrar de nuevo.";
+      return;
+    }
+    if (!orgId) {
+      throw new Error("No hay empresas registradas en este tenant.");
+    }
+    if (!orgs.some((o) => o.id === orgId)) {
+      throw new Error("La empresa seleccionada no pertenece a este tenant.");
+    }
+
+    saveConfig({ orgId });
+    clearPayrollSessionState();
+    await refreshOrgSwitcher();
     document.getElementById("login-modal").classList.add("hidden");
     checkHealth();
-    navigate("settings");
+    navigate("dashboard");
   }
 
   function bindLogin() {
@@ -3152,10 +3287,14 @@
     }
     bindLogin();
     initSidebar();
+    initOrgSwitcher();
     document.querySelectorAll("[data-page]").forEach((btn) => {
       btn.onclick = () => navigate(btn.dataset.page);
     });
     checkHealth();
+    if (!getConfig().orgId) {
+      document.getElementById("login-modal")?.classList.remove("hidden");
+    }
     navigate("dashboard");
   }
 

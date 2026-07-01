@@ -3,8 +3,8 @@ const DEMO_ORG = "00000000-0000-0000-0000-000000000010";
 
 export function getConfig() {
   return {
-    tenantId: localStorage.getItem("epayroll_tenant_id") || DEMO_TENANT,
-    orgId: localStorage.getItem("epayroll_org_id") || DEMO_ORG,
+    tenantId: localStorage.getItem("epayroll_tenant_id") || "",
+    orgId: localStorage.getItem("epayroll_org_id") || "",
     apiBase: localStorage.getItem("epayroll_api_base") || "",
   };
 }
@@ -15,16 +15,33 @@ export function saveConfig({ tenantId, orgId, apiBase }) {
   if (apiBase != null) localStorage.setItem("epayroll_api_base", apiBase);
 }
 
+export function requireOrgId() {
+  const orgId = getConfig().orgId;
+  if (!orgId) throw new Error("Seleccione una empresa activa.");
+  return orgId;
+}
+
+function getJwt() {
+  return localStorage.getItem("epayroll_jwt") || "";
+}
+
 export async function api(path, options = {}) {
   const cfg = getConfig();
   const base = cfg.apiBase.replace(/\/$/, "");
   const url = `${base}${path}`;
+  const token = getJwt();
   const headers = {
     "Content-Type": "application/json",
-    "X-Tenant-Id": cfg.tenantId,
     ...(options.headers || {}),
   };
-  if (cfg.orgId) headers["X-Organization-Id"] = cfg.orgId;
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  } else {
+    if (!cfg.tenantId) throw new Error("Inicie sesión para continuar.");
+    headers["X-Tenant-Id"] = cfg.tenantId;
+    if (cfg.orgId) headers["X-Organization-Id"] = cfg.orgId;
+    headers["X-Roles"] = "payroll_admin,rrhh,contador,tenant_admin";
+  }
 
   const res = await fetch(url, { ...options, headers });
   const text = await res.text();

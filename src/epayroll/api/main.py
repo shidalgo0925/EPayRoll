@@ -63,6 +63,9 @@ from epayroll.api.schemas import (
     PayrollRunCreate,
     LegalRateUpsert,
     AccountCodeUpsert,
+    OrganizationCreate,
+    OrganizationResponse,
+    OrganizationSummary,
     PayrollAdjustmentUpdate,
 )
 from epayroll.db.analytics_repository import AnalyticsRepository
@@ -74,6 +77,7 @@ from epayroll.db.export_repository import ExportRepository
 from epayroll.db.incapacity_repository import IncapacityRepository
 from epayroll.db.integration_repository import IntegrationRepository
 from epayroll.db.legal_config_repository import LegalConfigRepository, PlanillaViewRepository
+from epayroll.db.organization_repository import OrganizationRepository
 from epayroll.db.payslip_repository import PayslipRepository
 from epayroll.db.repositories import ContractRepository, EmployeeRecord, EmployeeRepository, PayrollRepository
 from epayroll.db.termination_repository import TerminationRepository
@@ -119,6 +123,7 @@ incapacity_repo = IncapacityRepository()
 analytics_repo = AnalyticsRepository(vacation_repo=vacation_repo)
 legal_config_repo = LegalConfigRepository()
 planilla_view_repo = PlanillaViewRepository()
+organization_repo = OrganizationRepository()
 
 DEMO_ORG_ID = "00000000-0000-0000-0000-000000000010"
 UI_DIR = Path(__file__).resolve().parents[3] / "ui" / "static"
@@ -160,6 +165,27 @@ def health() -> HealthResponse:
     return HealthResponse(status="ok", version=__version__)
 
 
+def _org_summary(row: dict[str, Any]) -> OrganizationSummary:
+    return OrganizationSummary(
+        id=row["id"],
+        tenant_id=row["tenant_id"],
+        razon_social=row["razon_social"],
+        ruc=row.get("ruc"),
+        periodo_pago=row.get("periodo_pago") or "QUINCENAL",
+    )
+
+
+def _org_response(row: dict[str, Any]) -> OrganizationResponse:
+    return OrganizationResponse(
+        id=row["id"],
+        tenant_id=row["tenant_id"],
+        razon_social=row["razon_social"],
+        ruc=row.get("ruc"),
+        activo=bool(row.get("activo", True)),
+        periodo_pago=row.get("periodo_pago") or "QUINCENAL",
+    )
+
+
 @app.get("/api/v1/auth/me")
 def auth_me(request: Request) -> dict[str, object]:
     """Contexto EN1 resuelto (stub headers o JWT)."""
@@ -186,9 +212,14 @@ def auth_login(body: LoginRequest) -> LoginResponse:
     from epayroll.auth.context import AuthContext
     from epayroll.auth.guard import TenantGuard
 
+    tenant = organization_repo.get_tenant(body.tenant_id)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant no encontrado o inactivo")
+
+    org_rows = organization_repo.list_by_tenant(body.tenant_id)
     if body.organization_id:
         TenantGuard().assert_org_access(
-            AuthContext(tenant_id=body.tenant_id, user_id=body.user_id),
+            AuthContext(tenant_id=body.tenant_id, user_id=body.user_id, roles=tuple(body.roles)),
             body.organization_id,
         )
 
@@ -201,9 +232,48 @@ def auth_login(body: LoginRequest) -> LoginResponse:
     return LoginResponse(
         access_token=token,
         tenant_id=body.tenant_id,
+        tenant_nombre=tenant.get("nombre"),
         organization_id=body.organization_id,
         user_id=body.user_id,
+        organizations=[_org_summary(r) for r in org_rows],
     )
+
+
+@app.get("/api/v1/me/organizations", response_model=list[OrganizationSummary])
+def list_my_organizations(request: Request) -> list[OrganizationSummary]:
+    """Organizaciones del tenant autenticado — datos aislados por tenant."""
+    ctx = get_auth_context(request)
+    if not ctx.authenticated or not ctx.tenant_id or ctx.tenant_id == "*":
+        raise HTTPException(status_code=401, detail="Autenticación requerida")
+    try:
+        rows = organization_repo.list_by_tenant(ctx.tenant_id)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Base de datos no disponible: {e}") from e
+    return [_org_summary(r) for r in rows]
+
+
+@app.post("/api/v1/me/organizations", response_model=OrganizationResponse, status_code=201)
+def create_my_organization(request: Request, body: OrganizationCreate) -> OrganizationResponse:
+    """Alta de empresa dentro del tenant autenticado."""
+    ctx = get_auth_context(request)
+    if not ctx.authenticated or not ctx.tenant_id or ctx.tenant_id == "*":
+        raise HTTPException(status_code=401, detail="Autenticación requerida")
+    if not ctx.has_any_role(frozenset({"tenant_admin", "admin", "payroll_admin"})):
+        raise HTTPException(status_code=403, detail="Rol insuficiente para crear organizaciones")
+    try:
+        row = organization_repo.create(ctx.tenant_id, body.razon_social, body.ruc)
+        legal_config_repo.seed_org_defaults(row["id"])
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"No se pudo crear organización: {e}") from e
+    return _org_response(row)
+
+
+@app.get("/api/v1/organizations/{organization_id}/profile", response_model=OrganizationResponse)
+def get_organization_profile(organization_id: str) -> OrganizationResponse:
+    row = organization_repo.get(organization_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Organización no encontrada")
+    return _org_response(row)
 
 
 @app.get("/api/v1/auth/sso/config", response_model=SsoConfigResponse)

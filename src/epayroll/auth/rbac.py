@@ -22,6 +22,11 @@ ROLE_RULES: tuple[tuple[re.Pattern[str], frozenset[str], frozenset[str]], ...] =
         frozenset({"contador", "admin"}),
     ),
     (
+        re.compile(r"^/api/v1/me/organizations$"),
+        frozenset({"POST"}),
+        frozenset({"tenant_admin", "admin", "payroll_admin"}),
+    ),
+    (
         re.compile(r"^/api/v1/vacation/requests/[^/]+/approve$"),
         frozenset({"POST"}),
         frozenset({"rrhh", "payroll_admin", "admin", "gerente"}),

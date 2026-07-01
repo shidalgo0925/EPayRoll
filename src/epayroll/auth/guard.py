@@ -14,6 +14,12 @@ class TenantGuard:
     def __init__(self, repo: TenantRepository | None = None) -> None:
         self.repo = repo or TenantRepository()
 
+    _ADMIN_ROLES = frozenset({"payroll_admin", "contador", "admin", "rrhh", "gerente", "tenant_admin"})
+
+    def assert_tenant_access(self, ctx: AuthContext, tenant_id: str) -> None:
+        if ctx.tenant_id != tenant_id:
+            raise TenantAccessError("Tenant no autorizado")
+
     def assert_org_access(self, ctx: AuthContext, organization_id: str) -> None:
         tenant_id = self.repo.org_tenant_id(organization_id)
         if not tenant_id:
@@ -21,7 +27,8 @@ class TenantGuard:
         if tenant_id != ctx.tenant_id:
             raise TenantAccessError("Organización fuera del tenant")
         if ctx.organization_id and ctx.organization_id != organization_id:
-            raise TenantAccessError("Organización no autorizada para este token")
+            if not ctx.has_any_role(self._ADMIN_ROLES):
+                raise TenantAccessError("Organización no autorizada para este token")
 
     def assert_employee_access(self, ctx: AuthContext, employee_id: str) -> None:
         org_id = self.repo.employee_org_id(employee_id)

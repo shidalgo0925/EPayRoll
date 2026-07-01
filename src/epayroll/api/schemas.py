@@ -19,9 +19,33 @@ class LoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     tenant_id: str
+    tenant_nombre: str | None = None
     organization_id: str | None = None
     user_id: str
     expires_in_hours: int = 8
+    organizations: list["OrganizationSummary"] = Field(default_factory=list)
+
+
+class OrganizationSummary(BaseModel):
+    id: str
+    tenant_id: str
+    razon_social: str
+    ruc: str | None = None
+    periodo_pago: str = "QUINCENAL"
+
+
+class OrganizationCreate(BaseModel):
+    razon_social: str = Field(min_length=2, max_length=255)
+    ruc: str | None = Field(default=None, max_length=50)
+
+
+class OrganizationResponse(BaseModel):
+    id: str
+    tenant_id: str
+    razon_social: str
+    ruc: str | None = None
+    activo: bool = True
+    periodo_pago: str = "QUINCENAL"
 
 
 class SsoConfigResponse(BaseModel):

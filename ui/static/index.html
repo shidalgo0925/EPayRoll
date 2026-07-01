@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>EPayRoll — Gestión de Planilla</title>
     <link rel="icon" type="image/png" href="/app/img/favicon.png?v=1" />
-    <link rel="stylesheet" href="/app/css/app.css?v=24" />
+    <link rel="stylesheet" href="/app/css/app.css?v=25" />
   </head>
   <body>
     <div class="layout" id="app-layout">
@@ -61,6 +61,9 @@
         <header class="app-header">
           <h1 class="app-header-title" id="page-title">Dashboard</h1>
           <div class="app-header-actions">
+            <select id="org-switcher" class="org-switcher" title="Empresa activa" aria-label="Empresa activa">
+              <option value="">— Empresa —</option>
+            </select>
             <div id="api-status" class="api-pill loading">Conectando…</div>
             <button type="button" data-page="settings" class="header-icon-btn" title="Configuración" aria-label="Configuración">
               <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 15.5A3.5 3.5 0 1 0 12 8.5a3.5 3.5 0 0 0 0 7m7.43-2.53c.04-.32.07-.64.07-.97 0-.33-.03-.66-.07-1l2.11-1.63c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.31-.61-.22l-2.49 1c-.52-.4-1.06-.73-1.69-.98l-.37-2.65A.506.506 0 0 0 14 2h-4c-.25 0-.46.18-.5.42l-.37 2.65c-.63.25-1.17.59-1.69.98l-2.49-1c-.22-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64L4.57 11c-.04.34-.07.67-.07 1 0 .33.03.65.07.97l-2.11 1.66c-.19.15-.25.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1.01c.52.4 1.06.74 1.69.99l.37 2.65c.04.24.25.42.5.42h4c.25 0 .46-.18.5-.42l.37-2.65c.63-.26 1.17-.59 1.69-.99l2.49 1.01c.22.08.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64z"/></svg>
@@ -84,14 +87,16 @@
         <h2>Iniciar sesión</h2>
         <p class="loading" style="margin-bottom:1rem">Acceso seguro a la API</p>
         <form id="login-form">
-          <label>Tenant ID</label>
-          <input name="tenant" type="text" required />
-          <label>Organización ID</label>
-          <input name="org" type="text" />
-          <label>Usuario ID</label>
-          <input name="user" type="text" value="admin" />
-          <label>API Key</label>
-          <input name="apikey" type="password" required placeholder="EPAYROLL_LOGIN_API_KEY" />
+          <label for="login-tenant">Tenant ID</label>
+          <input id="login-tenant" name="tenant" type="text" required placeholder="UUID del tenant" />
+          <label for="login-org-select">Empresa</label>
+          <select id="login-org-select" name="org">
+            <option value="">— Se cargará al iniciar sesión —</option>
+          </select>
+          <label for="login-user">Usuario ID</label>
+          <input id="login-user" name="user" type="text" value="admin" />
+          <label for="login-apikey">API Key</label>
+          <input id="login-apikey" name="apikey" type="password" required placeholder="EPAYROLL_LOGIN_API_KEY" />
           <div id="login-error" class="alert alert-error hidden" style="margin-top:0.75rem"></div>
           <button type="submit" class="btn" style="width:100%;margin-top:1rem">Entrar</button>
           <button type="button" class="btn btn-secondary hidden" id="btn-sso-en1" style="width:100%;margin-top:0.65rem">Iniciar sesión con EN1</button>
@@ -99,6 +104,6 @@
       </div>
     </div>
 
-    <script src="/app/js/bundle.js?v=43" defer></script>
+    <script src="/app/js/bundle.js?v=44" defer></script>
   </body>
 </html>

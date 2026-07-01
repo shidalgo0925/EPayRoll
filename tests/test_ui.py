@@ -29,6 +29,8 @@ def test_ui_index_served(ui_client):
     assert "EPayRoll" in r.text
     assert "/app/img/logo-epayroll.png" in r.text
     assert "/app/js/bundle.js" in r.text
+    assert 'id="org-switcher"' in r.text
+    assert 'id="login-org-select"' in r.text
 
 
 def test_ui_logo_asset(ui_client):
@@ -41,6 +43,8 @@ def test_ui_dashboard_bundle(ui_client):
     r = ui_client.get("/app/js/bundle.js")
     assert r.status_code == 200
     assert "X-Tenant-Id" in r.text
+    assert "/api/v1/me/organizations" in r.text
+    assert "requireOrgId" in r.text
     assert "proyeccion_liquidaciones" in r.text
 
 
