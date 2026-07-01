@@ -90,10 +90,11 @@
           <label for="login-email">Usuario</label>
           <input id="login-email" name="email" type="email" required autocomplete="username" value="shidalgo@easytech.services" />
           <label for="login-password">Contraseña</label>
-          <input id="login-password" name="password" type="password" required autocomplete="current-password" />
+          <input id="login-password" name="password" type="password" required autocomplete="current-password" placeholder="Clave de acceso" />
+          <p class="login-hint">Clave inicial demo: <strong>EasyTech2026!</strong></p>
           <label for="login-org-select">Empresa</label>
-          <select id="login-org-select" name="org" disabled>
-            <option value="">— Se listará al validar usuario —</option>
+          <select id="login-org-select" name="org">
+            <option value="00000000-0000-0000-0000-000000000010" selected>Easy Technology Services S.A.</option>
           </select>
           <div id="login-error" class="alert alert-error hidden" style="margin-top:0.75rem"></div>
           <button type="submit" class="btn" style="width:100%;margin-top:1rem">Entrar</button>
@@ -102,6 +103,6 @@
       </div>
     </div>
 
-    <script src="/app/js/bundle.js?v=47" defer></script>
+    <script src="/app/js/bundle.js?v=48" defer></script>
   </body>
 </html>
