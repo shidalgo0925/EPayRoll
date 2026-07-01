@@ -3204,6 +3204,28 @@
     }
   }
 
+  function resetLoginOrgSelect(form) {
+    const sel = document.getElementById("login-org-select");
+    if (!sel) return;
+    sel.disabled = true;
+    sel.innerHTML = `<option value="">— Valide usuario y contraseña —</option>`;
+    if (form) form.dataset.validated = "";
+    const hint = document.getElementById("login-org-hint");
+    if (hint) hint.textContent = "Las empresas se listan solo tras validar su acceso.";
+  }
+
+  function finishLogin(data, cfg, orgId, orgs, form) {
+    setJwt(data.access_token);
+    saveConfig({ tenantId: data.tenant_id, orgId, apiBase: cfg.apiBase });
+    localStorage.setItem("epayroll_user_email", data.email || form.email.value.trim());
+    localStorage.setItem(ORG_CACHE_KEY, JSON.stringify(orgs));
+    clearPayrollSessionState();
+    refreshOrgSwitcher();
+    document.getElementById("login-modal").classList.add("hidden");
+    checkHealth();
+    navigate("dashboard");
+  }
+
   async function authenticateLoginForm(form, organizationId = null) {
     const cfg = getConfig();
     const base = cfg.apiBase.replace(/\/$/, "");
@@ -3233,47 +3255,62 @@
     err.className = "alert alert-error hidden";
     err.textContent = "";
 
-    let orgId = form.org.value.trim();
+    const loginOrgSelect = document.getElementById("login-org-select");
+    const validated = form.dataset.validated === "1";
+    const orgId = validated ? form.org.value.trim() : null;
+
     const { data, cfg } = await authenticateLoginForm(form, orgId || null);
     const orgs = data.organizations || [];
-    const loginOrgSelect = document.getElementById("login-org-select");
-    renderOrgSelectOptions(loginOrgSelect, orgs, orgId || pickDefaultOrganization(orgs));
 
-    if (!orgId) orgId = pickDefaultOrganization(orgs);
-    if (!orgId && orgs.length > 1) {
-      setJwt(data.access_token);
-      saveConfig({ tenantId: data.tenant_id, apiBase: cfg.apiBase });
-      localStorage.setItem("epayroll_user_email", data.email || form.email.value.trim());
-      localStorage.setItem(ORG_CACHE_KEY, JSON.stringify(orgs));
-      err.classList.remove("hidden");
-      err.textContent = "Seleccione su empresa y pulse Entrar.";
-      return;
-    }
-    if (!orgId) {
+    if (!validated) {
+      form.dataset.validated = "1";
+      renderOrgSelectOptions(loginOrgSelect, orgs, pickDefaultOrganization(orgs));
+      loginOrgSelect.disabled = false;
+      const hint = document.getElementById("login-org-hint");
+      if (hint) {
+        hint.textContent = orgs.length
+          ? `${orgs.length} empresa(s) disponible(s) para su usuario.`
+          : "Sin empresas asignadas.";
+      }
+
+      if (orgs.length === 1) {
+        finishLogin(data, cfg, orgs[0].id, orgs, form);
+        return;
+      }
+      if (orgs.length > 1) {
+        setJwt(data.access_token);
+        saveConfig({ tenantId: data.tenant_id, apiBase: cfg.apiBase });
+        localStorage.setItem("epayroll_user_email", data.email || form.email.value.trim());
+        localStorage.setItem(ORG_CACHE_KEY, JSON.stringify(orgs));
+        err.className = "alert alert-success";
+        err.classList.remove("hidden");
+        err.textContent = "Seleccione su empresa y pulse Entrar.";
+        return;
+      }
       throw new Error("Su usuario no tiene empresas asignadas.");
     }
-    if (!orgs.some((o) => o.id === orgId)) {
+
+    const selected = form.org.value.trim();
+    if (!selected) {
+      err.classList.remove("hidden");
+      err.textContent = "Seleccione su empresa.";
+      return;
+    }
+    if (!orgs.some((o) => o.id === selected)) {
       throw new Error("Sin acceso a la empresa seleccionada.");
     }
 
-    const finalLogin = orgId === data.organization_id
-      ? { data, cfg }
-      : await authenticateLoginForm(form, orgId);
-
-    setJwt(finalLogin.data.access_token);
-    saveConfig({ tenantId: finalLogin.data.tenant_id, orgId, apiBase: cfg.apiBase });
-    localStorage.setItem("epayroll_user_email", finalLogin.data.email || form.email.value.trim());
-    localStorage.setItem(ORG_CACHE_KEY, JSON.stringify(orgs));
-    clearPayrollSessionState();
-    await refreshOrgSwitcher();
-    document.getElementById("login-modal").classList.add("hidden");
-    checkHealth();
-    navigate("dashboard");
+    const finalLogin =
+      selected === data.organization_id ? { data, cfg } : await authenticateLoginForm(form, selected);
+    finishLogin(finalLogin.data, finalLogin.cfg, selected, orgs, form);
   }
 
   function bindLogin() {
     const form = document.getElementById("login-form");
     if (!form) return;
+    resetLoginOrgSelect(form);
+    form.email?.addEventListener("input", () => resetLoginOrgSelect(form));
+    form.password?.addEventListener("input", () => resetLoginOrgSelect(form));
     form.onsubmit = async (e) => {
       e.preventDefault();
       const err = document.getElementById("login-error");
@@ -3281,6 +3318,8 @@
       try {
         await doLogin(form);
       } catch (ex) {
+        err.className = "alert alert-error";
+        err.classList.remove("hidden");
         err.textContent = ex.message;
       }
     };

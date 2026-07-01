@@ -93,9 +93,10 @@
           <input id="login-password" name="password" type="password" required autocomplete="current-password" placeholder="Clave de acceso" />
           <p class="login-hint">Clave inicial demo: <strong>EasyTech2026!</strong></p>
           <label for="login-org-select">Empresa</label>
-          <select id="login-org-select" name="org">
-            <option value="00000000-0000-0000-0000-000000000010" selected>Easy Technology Services S.A.</option>
+          <select id="login-org-select" name="org" disabled>
+            <option value="">— Valide usuario y contraseña —</option>
           </select>
+          <p class="login-hint" id="login-org-hint">Las empresas se listan solo tras validar su acceso.</p>
           <div id="login-error" class="alert alert-error hidden" style="margin-top:0.75rem"></div>
           <button type="submit" class="btn" style="width:100%;margin-top:1rem">Entrar</button>
           <button type="button" class="btn btn-secondary hidden" id="btn-sso-en1" style="width:100%;margin-top:0.65rem">Iniciar sesión con EN1</button>
@@ -103,6 +104,6 @@
       </div>
     </div>
 
-    <script src="/app/js/bundle.js?v=48" defer></script>
+    <script src="/app/js/bundle.js?v=49" defer></script>
   </body>
 </html>

@@ -32,7 +32,8 @@ def test_ui_index_served(ui_client):
     assert 'id="org-switcher"' in r.text
     assert 'id="login-email"' in r.text
     assert 'id="login-password"' in r.text
-    assert 'name="tenant"' not in r.text
+    assert 'id="login-org-select"' in r.text
+    assert "Valide usuario" in r.text
 
 
 def test_ui_logo_asset(ui_client):
