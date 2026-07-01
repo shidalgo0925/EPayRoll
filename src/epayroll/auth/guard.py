@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from epayroll.auth.context import AuthContext
 from epayroll.auth.tenant_repository import TenantRepository
+from epayroll.db.user_repository import UserRepository
 
 
 class TenantAccessError(Exception):
@@ -11,8 +12,9 @@ class TenantAccessError(Exception):
 
 
 class TenantGuard:
-    def __init__(self, repo: TenantRepository | None = None) -> None:
+    def __init__(self, repo: TenantRepository | None = None, user_repo: UserRepository | None = None) -> None:
         self.repo = repo or TenantRepository()
+        self.user_repo = user_repo or UserRepository()
 
     _ADMIN_ROLES = frozenset({"payroll_admin", "contador", "admin", "rrhh", "gerente", "tenant_admin"})
 
@@ -26,6 +28,9 @@ class TenantGuard:
             raise TenantAccessError("Organización no encontrada", status_code=404)
         if tenant_id != ctx.tenant_id:
             raise TenantAccessError("Organización fuera del tenant")
+        if ctx.user_id and self.user_repo.get_by_id(ctx.user_id):
+            if not self.user_repo.user_has_org_access(ctx.user_id, organization_id):
+                raise TenantAccessError("Sin acceso a esta empresa")
         if ctx.organization_id and ctx.organization_id != organization_id:
             if not ctx.has_any_role(self._ADMIN_ROLES):
                 raise TenantAccessError("Organización no autorizada para este token")

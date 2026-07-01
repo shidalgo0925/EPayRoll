@@ -49,7 +49,13 @@ class OrganizationRepository:
                     FROM organizations o
                     LEFT JOIN organization_settings os ON os.organization_id = o.id
                     WHERE o.tenant_id = %s::uuid AND o.activo = true
-                    ORDER BY o.razon_social
+                    ORDER BY
+                        CASE
+                            WHEN o.id = '00000000-0000-0000-0000-000000000010'::uuid THEN 0
+                            WHEN o.razon_social ILIKE 'Easy Technology%%' THEN 1
+                            ELSE 2
+                        END,
+                        o.razon_social
                     """,
                     (tenant_id,),
                 )

@@ -1111,6 +1111,20 @@ pre.output {
   margin-bottom: 0.35rem;
 }
 
+.login-subtitle {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin-bottom: 1rem;
+  line-height: 1.4;
+}
+
+.login-hint {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin: 0.2rem 0 0.35rem;
+  line-height: 1.35;
+}
+
 .login-card label {
   display: block;
   font-size: 0.75rem;
@@ -1130,6 +1144,27 @@ pre.output {
 }
 
 .login-card input:focus {
+  outline: none;
+  border-color: var(--brand-teal);
+  box-shadow: 0 0 0 3px rgba(28, 184, 196, 0.15);
+}
+
+.login-card select {
+  width: 100%;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 0.5rem 0.65rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+
+.login-card select:disabled {
+  opacity: 0.75;
+  cursor: not-allowed;
+}
+
+.login-card select:focus {
   outline: none;
   border-color: var(--brand-teal);
   box-shadow: 0 0 0 3px rgba(28, 184, 196, 0.15);

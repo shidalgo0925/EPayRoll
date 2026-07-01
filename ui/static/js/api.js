@@ -1,5 +1,6 @@
 const DEMO_TENANT = "00000000-0000-0000-0000-000000000001";
 const DEMO_ORG = "00000000-0000-0000-0000-000000000010";
+const PRIMARY_ORG_NAME = "Easy Technology Services";
 
 export function getConfig() {
   return {

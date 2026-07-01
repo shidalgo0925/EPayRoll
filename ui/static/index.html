@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>EPayRoll — Gestión de Planilla</title>
     <link rel="icon" type="image/png" href="/app/img/favicon.png?v=1" />
-    <link rel="stylesheet" href="/app/css/app.css?v=25" />
+    <link rel="stylesheet" href="/app/css/app.css?v=26" />
   </head>
   <body>
     <div class="layout" id="app-layout">
@@ -85,18 +85,16 @@
           <img src="/app/img/logo-epayroll.png?v=1" alt="EPayRoll — Gestión de Planilla" class="brand-logo" width="320" height="160" />
         </div>
         <h2>Iniciar sesión</h2>
-        <p class="loading" style="margin-bottom:1rem">Acceso seguro a la API</p>
+        <p class="login-subtitle">Gestión de planilla — acceso seguro a su empresa</p>
         <form id="login-form">
-          <label for="login-tenant">Tenant ID</label>
-          <input id="login-tenant" name="tenant" type="text" required placeholder="UUID del tenant" />
+          <label for="login-email">Usuario</label>
+          <input id="login-email" name="email" type="email" required autocomplete="username" value="shidalgo@easytech.services" />
+          <label for="login-password">Contraseña</label>
+          <input id="login-password" name="password" type="password" required autocomplete="current-password" />
           <label for="login-org-select">Empresa</label>
-          <select id="login-org-select" name="org">
-            <option value="">— Se cargará al iniciar sesión —</option>
+          <select id="login-org-select" name="org" disabled>
+            <option value="">— Se listará al validar usuario —</option>
           </select>
-          <label for="login-user">Usuario ID</label>
-          <input id="login-user" name="user" type="text" value="admin" />
-          <label for="login-apikey">API Key</label>
-          <input id="login-apikey" name="apikey" type="password" required placeholder="EPAYROLL_LOGIN_API_KEY" />
           <div id="login-error" class="alert alert-error hidden" style="margin-top:0.75rem"></div>
           <button type="submit" class="btn" style="width:100%;margin-top:1rem">Entrar</button>
           <button type="button" class="btn btn-secondary hidden" id="btn-sso-en1" style="width:100%;margin-top:0.65rem">Iniciar sesión con EN1</button>
@@ -104,6 +102,6 @@
       </div>
     </div>
 
-    <script src="/app/js/bundle.js?v=44" defer></script>
+    <script src="/app/js/bundle.js?v=47" defer></script>
   </body>
 </html>

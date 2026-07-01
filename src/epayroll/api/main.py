@@ -78,6 +78,7 @@ from epayroll.db.incapacity_repository import IncapacityRepository
 from epayroll.db.integration_repository import IntegrationRepository
 from epayroll.db.legal_config_repository import LegalConfigRepository, PlanillaViewRepository
 from epayroll.db.organization_repository import OrganizationRepository
+from epayroll.db.user_repository import UserRepository
 from epayroll.db.payslip_repository import PayslipRepository
 from epayroll.db.repositories import ContractRepository, EmployeeRecord, EmployeeRepository, PayrollRepository
 from epayroll.db.termination_repository import TerminationRepository
@@ -124,6 +125,7 @@ analytics_repo = AnalyticsRepository(vacation_repo=vacation_repo)
 legal_config_repo = LegalConfigRepository()
 planilla_view_repo = PlanillaViewRepository()
 organization_repo = OrganizationRepository()
+user_repo = UserRepository()
 
 DEMO_ORG_ID = "00000000-0000-0000-0000-000000000010"
 UI_DIR = Path(__file__).resolve().parents[3] / "ui" / "static"
@@ -190,63 +192,80 @@ def _org_response(row: dict[str, Any]) -> OrganizationResponse:
 def auth_me(request: Request) -> dict[str, object]:
     """Contexto EN1 resuelto (stub headers o JWT)."""
     ctx = get_auth_context(request)
+    email: str | None = None
+    if ctx.user_id:
+        try:
+            app_user = user_repo.get_by_id(ctx.user_id)
+            if app_user:
+                email = app_user.get("email")
+        except Exception:
+            pass
     return {
         "authenticated": ctx.authenticated,
         "tenant_id": ctx.tenant_id or None,
         "organization_id": ctx.organization_id,
         "user_id": ctx.user_id,
+        "email": email,
         "roles": list(ctx.roles),
     }
 
 
 @app.post("/api/v1/auth/login", response_model=LoginResponse)
 def auth_login(body: LoginRequest) -> LoginResponse:
-    """
-    Login EN1 — emite JWT para la UI.
-    Requiere EPAYROLL_LOGIN_API_KEY (compartida con EN1 o panel admin).
-    """
-    expected = os.environ.get("EPAYROLL_LOGIN_API_KEY", "dev-login-key")
-    if body.api_key != expected:
-        raise HTTPException(status_code=401, detail="API key inválida")
+    """Login por usuario — tenant resuelto en servidor; solo empresas autorizadas."""
+    try:
+        user = user_repo.authenticate(body.email.strip().lower(), body.password)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Base de datos no disponible: {e}") from e
+    if not user:
+        raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos")
 
-    from epayroll.auth.context import AuthContext
-    from epayroll.auth.guard import TenantGuard
+    try:
+        org_rows = user_repo.list_organizations_for_user(user["id"])
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Base de datos no disponible: {e}") from e
+    if not org_rows:
+        raise HTTPException(status_code=403, detail="Su usuario no tiene empresas asignadas")
 
-    tenant = organization_repo.get_tenant(body.tenant_id)
-    if not tenant:
-        raise HTTPException(status_code=404, detail="Tenant no encontrado o inactivo")
-
-    org_rows = organization_repo.list_by_tenant(body.tenant_id)
-    if body.organization_id:
-        TenantGuard().assert_org_access(
-            AuthContext(tenant_id=body.tenant_id, user_id=body.user_id, roles=tuple(body.roles)),
-            body.organization_id,
-        )
+    org_id = body.organization_id
+    roles: list[str] = []
+    if org_id:
+        match = next((o for o in org_rows if o["id"] == org_id), None)
+        if not match:
+            raise HTTPException(status_code=403, detail="Sin acceso a la empresa seleccionada")
+        roles = list(match.get("roles") or ["payroll_admin"])
+    elif len(org_rows) == 1:
+        org_id = org_rows[0]["id"]
+        roles = list(org_rows[0].get("roles") or ["payroll_admin"])
 
     token = encode_jwt(
-        tenant_id=body.tenant_id,
-        user_id=body.user_id,
-        organization_id=body.organization_id,
-        roles=body.roles,
+        tenant_id=user["tenant_id"],
+        user_id=user["id"],
+        organization_id=org_id,
+        roles=roles,
     )
     return LoginResponse(
         access_token=token,
-        tenant_id=body.tenant_id,
-        tenant_nombre=tenant.get("nombre"),
-        organization_id=body.organization_id,
-        user_id=body.user_id,
+        tenant_id=user["tenant_id"],
+        tenant_nombre=user.get("tenant_nombre"),
+        organization_id=org_id,
+        user_id=user["id"],
+        email=user["email"],
         organizations=[_org_summary(r) for r in org_rows],
     )
 
 
 @app.get("/api/v1/me/organizations", response_model=list[OrganizationSummary])
 def list_my_organizations(request: Request) -> list[OrganizationSummary]:
-    """Organizaciones del tenant autenticado — datos aislados por tenant."""
+    """Empresas asignadas al usuario autenticado."""
     ctx = get_auth_context(request)
     if not ctx.authenticated or not ctx.tenant_id or ctx.tenant_id == "*":
         raise HTTPException(status_code=401, detail="Autenticación requerida")
     try:
-        rows = organization_repo.list_by_tenant(ctx.tenant_id)
+        if ctx.user_id and user_repo.get_by_id(ctx.user_id):
+            rows = user_repo.list_organizations_for_user(ctx.user_id)
+        else:
+            rows = organization_repo.list_by_tenant(ctx.tenant_id)
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Base de datos no disponible: {e}") from e
     return [_org_summary(r) for r in rows]

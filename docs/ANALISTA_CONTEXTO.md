@@ -16,6 +16,8 @@ Sistema de **planilla quincenal Panamá** (CSS, SE, ISR) con **asistencia interm
 
 **Regla de oro:** la planilla **no captura** horas sueltas en la grilla final; primero se guardan **hechos de asistencia**, luego el motor calcula días, extras y descuentos.
 
+**Empresa de referencia:** la primera organización del tenant es **Easy Technology Services S.A.** — planilla piloto y datos demo.
+
 ---
 
 ## 2. Entorno operativo (apps srv)
@@ -25,9 +27,9 @@ Sistema de **planilla quincenal Panamá** (CSS, SE, ISR) con **asistencia interm
 | UI web | https://eplanilla.etsrv.site/app/ |
 | API | puerto **8001** (`epayroll-api` systemd) |
 | PostgreSQL | puerto **5433** |
-| Org demo | `00000000-0000-0000-0000-000000000010` |
-| Tenant demo (API) | `00000000-0000-0000-0000-000000000001` |
-| Bundle UI actual | `bundle.js?v=43`, `app.css?v=23` |
+| **Empresa principal (1.ª org)** | **Easy Technology Services S.A.** — `00000000-0000-0000-0000-000000000010` |
+| Tenant | `00000000-0000-0000-0000-000000000001` (Easy Technology Services) |
+| Bundle UI actual | `bundle.js?v=45`, `app.css?v=25` |
 
 Tras despliegue de código: `sudo systemctl restart epayroll-api` y **Ctrl+F5** en el navegador.
 

@@ -352,12 +352,14 @@ def seed_professional_risk(cur) -> None:
 
 
 def seed_demo_tenant(cur) -> None:
-    """Tenant y organización demo para desarrollo local."""
+    """Tenant y organización principal — Easy Technology Services."""
     cur.execute(
         """
         INSERT INTO tenants (id, nombre, slug)
-        VALUES ('00000000-0000-0000-0000-000000000001', 'Demo EasyTech', 'demo-easytech')
-        ON CONFLICT (slug) DO NOTHING
+        VALUES ('00000000-0000-0000-0000-000000000001', 'Easy Technology Services', 'demo-easytech')
+        ON CONFLICT (slug) DO UPDATE SET
+            nombre = EXCLUDED.nombre,
+            updated_at = now()
         """
     )
     cur.execute(
@@ -384,7 +386,9 @@ def seed_demo_tenant(cur) -> None:
             '0000000000000',
             'ADMIN_OFICINA'
         FROM tenants t WHERE t.slug = 'demo-easytech'
-        ON CONFLICT DO NOTHING
+        ON CONFLICT (id) DO UPDATE SET
+            razon_social = EXCLUDED.razon_social,
+            updated_at = now()
         """
     )
     cur.execute(
@@ -409,7 +413,50 @@ def seed_demo_tenant(cur) -> None:
             WHERE orc.organization_id = o.id AND orc.vigencia_hasta IS NULL
         )
         """
-    )
+        )
+
+
+def seed_demo_users(cur) -> None:
+    """Usuarios de aplicación con acceso por empresa."""
+    sys.path.insert(0, str(ROOT / "src"))
+    from epayroll.auth.passwords import hash_password
+
+    demo_password = os.environ.get("EPAYROLL_DEMO_PASSWORD", "EasyTech2026!")
+    pwd_hash = hash_password(demo_password)
+    tenant_id = "00000000-0000-0000-0000-000000000001"
+    org_ets = "00000000-0000-0000-0000-000000000010"
+
+    users = [
+        ("shidalgo@easytech.services", "Seul Hidalgo", [org_ets], ["payroll_admin", "rrhh", "contador", "tenant_admin"]),
+        ("admin@easytech.services", "Administrador Demo", [org_ets], ["payroll_admin", "contador", "tenant_admin"]),
+    ]
+    for email, nombres, org_ids, roles in users:
+        cur.execute(
+            """
+            INSERT INTO app_users (tenant_id, email, password_hash, nombres)
+            VALUES (%s::uuid, %s, %s, %s)
+            ON CONFLICT (email) DO UPDATE SET
+                password_hash = EXCLUDED.password_hash,
+                nombres = EXCLUDED.nombres,
+                activo = true,
+                updated_at = now()
+            RETURNING id
+            """,
+            (tenant_id, email, pwd_hash, nombres),
+        )
+        user_id = cur.fetchone()[0]
+        for org_id in org_ids:
+            cur.execute(
+                """
+                INSERT INTO user_organization_memberships (user_id, organization_id, roles)
+                VALUES (%s::uuid, %s::uuid, %s::text[])
+                ON CONFLICT (user_id, organization_id) DO UPDATE SET
+                    roles = EXCLUDED.roles,
+                    activo = true,
+                    updated_at = now()
+                """,
+                (user_id, org_id, roles),
+            )
 
 
 def main() -> None:
@@ -453,6 +500,8 @@ def main() -> None:
             if not args.skip_demo:
                 print("→ demo tenant")
                 seed_demo_tenant(cur)
+                print("→ demo users")
+                seed_demo_users(cur)
         conn.commit()
         print("Seed completado.")
     except Exception:

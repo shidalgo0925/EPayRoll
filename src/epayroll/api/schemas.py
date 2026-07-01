@@ -8,11 +8,9 @@ from pydantic import BaseModel, Field
 
 
 class LoginRequest(BaseModel):
-    tenant_id: str
+    email: str = Field(min_length=3, max_length=255)
+    password: str = Field(min_length=1, max_length=256)
     organization_id: str | None = None
-    user_id: str
-    api_key: str
-    roles: list[str] = Field(default_factory=lambda: ["payroll_admin"])
 
 
 class LoginResponse(BaseModel):
@@ -22,6 +20,7 @@ class LoginResponse(BaseModel):
     tenant_nombre: str | None = None
     organization_id: str | None = None
     user_id: str
+    email: str
     expires_in_hours: int = 8
     organizations: list["OrganizationSummary"] = Field(default_factory=list)
 

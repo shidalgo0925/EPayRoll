@@ -4,6 +4,7 @@
 
   const DEMO_TENANT = "00000000-0000-0000-0000-000000000001";
   const DEMO_ORG = "00000000-0000-0000-0000-000000000010";
+  const PRIMARY_ORG_NAME = "Easy Technology Services";
   const FETCH_TIMEOUT_MS = 15000;
   const SIDEBAR_KEY = "epayroll_sidebar_collapsed";
   const ORG_CACHE_KEY = "epayroll_orgs_cache";
@@ -50,6 +51,17 @@
       payrollState.runId = "";
       payrollState.employeeId = "";
     }
+  }
+
+  function pickDefaultOrganization(orgs) {
+    if (!orgs?.length) return "";
+    if (orgs.length === 1) return orgs[0].id;
+    const byId = orgs.find((o) => o.id === DEMO_ORG);
+    if (byId) return byId.id;
+    const byName = orgs.find((o) =>
+      String(o.razon_social || "").toLowerCase().includes("easy technology")
+    );
+    return byName ? byName.id : "";
   }
 
   function renderOrgSelectOptions(selectEl, orgs, activeId) {
@@ -2997,19 +3009,14 @@
           </div>
         </div>
         <div class="panel settings-section">
-          <h2>Tenant y empresa</h2>
+          <h2>Empresa activa</h2>
           <div class="field">
-            <label for="cfg-tenant">Tenant ID</label>
-            <input id="cfg-tenant" type="text" spellcheck="false" value="${cfg.tenantId.replace(/"/g, "&quot;")}" />
-          </div>
-          <div class="field">
-            <label for="cfg-org">Empresa activa</label>
+            <label for="cfg-org">Empresa</label>
             <select id="cfg-org"></select>
           </div>
-          <p class="settings-hint">Demo: tenant <code>${DEMO_TENANT}</code>. Las empresas se cargan solo del tenant autenticado.</p>
+          <p class="settings-hint">Solo se listan las empresas asignadas a su usuario.</p>
           <div class="settings-actions">
             <button type="button" class="btn" id="cfg-save">Guardar</button>
-            <button type="button" class="btn btn-secondary" id="cfg-reset-demo">Restaurar demo</button>
             <button type="button" class="btn btn-secondary" id="cfg-org-create">Nueva empresa</button>
           </div>
           <div id="cfg-save-msg"></div>
@@ -3017,9 +3024,9 @@
         <div class="panel settings-section">
           <h2>Sesión</h2>
           <div id="session-badge" class="session-badge ${getJwt() ? "ok" : "guest"}">${sessionLabel()}</div>
-          <p class="settings-kv">
-            <strong>Tenant:</strong> ${cfg.tenantId}<br />
-            <strong>Organización:</strong> ${cfg.orgId || "—"}
+          <p class="settings-kv" id="session-info">
+            <strong>Usuario:</strong> ${localStorage.getItem("epayroll_user_email") || "—"}<br />
+            <strong>Empresa:</strong> ${cfg.orgId || "—"}
           </p>
           <div class="settings-actions">
             <button type="button" class="btn" id="btn-login-open">Iniciar sesión</button>
@@ -3041,10 +3048,9 @@
     refreshOrgSwitcher().then((orgs) => renderOrgSelectOptions(cfgOrgSelect, orgs, cfg.orgId));
 
     const persist = (msg) => {
-      const tenant = document.getElementById("cfg-tenant").value.trim();
       const org = document.getElementById("cfg-org").value.trim();
       const apiBase = document.getElementById("cfg-base").value.trim();
-      saveConfig({ tenantId: tenant, orgId: org, apiBase });
+      saveConfig({ orgId: org, apiBase });
       refreshOrgSwitcher();
       checkHealth();
       if (msg) {
@@ -3055,14 +3061,6 @@
     };
 
     document.getElementById("cfg-save").onclick = () => persist("Configuración guardada");
-    document.getElementById("cfg-reset-demo").onclick = () => {
-      document.getElementById("cfg-tenant").value = DEMO_TENANT;
-      document.getElementById("cfg-base").value = "";
-      saveConfig({ tenantId: DEMO_TENANT, orgId: "", apiBase: "" });
-      setJwt("");
-      document.getElementById("login-modal").classList.remove("hidden");
-      persist("Tenant demo restaurado — inicie sesión y elija empresa");
-    };
     document.getElementById("cfg-org-create").onclick = async () => {
       const nombre = prompt("Razón social de la nueva empresa:");
       if (!nombre?.trim()) return;
@@ -3094,15 +3092,13 @@
     };
 
     document.getElementById("btn-login-open").onclick = () => {
-      const modal = document.getElementById("login-modal");
-      const form = document.getElementById("login-form");
-      form.tenant.value = getConfig().tenantId || DEMO_TENANT;
-      modal.classList.remove("hidden");
+      document.getElementById("login-modal").classList.remove("hidden");
     };
     document.getElementById("btn-logout").onclick = () => {
       setJwt("");
       setRefreshToken("");
       saveConfig({ orgId: "" });
+      localStorage.removeItem("epayroll_user_email");
       localStorage.removeItem(ORG_CACHE_KEY);
       clearPayrollSessionState();
       document.getElementById("session-badge").className = "session-badge guest";
@@ -3205,46 +3201,60 @@
     }
   }
 
-  async function doLogin(form) {
+  async function authenticateLoginForm(form, organizationId = null) {
     const cfg = getConfig();
     const base = cfg.apiBase.replace(/\/$/, "");
-    const tenantId = form.tenant.value.trim();
     const res = await fetch(`${base}/api/v1/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        tenant_id: tenantId,
-        organization_id: form.org.value.trim() || null,
-        user_id: form.user.value.trim() || "ui-user",
-        api_key: form.apikey.value,
-        roles: ["payroll_admin", "rrhh", "contador", "tenant_admin"],
+        email: form.email.value.trim().toLowerCase(),
+        password: form.password.value,
+        organization_id: organizationId,
       }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || "Login fallido");
-    setJwt(data.access_token);
-    saveConfig({ tenantId, apiBase: cfg.apiBase });
+    return { data, cfg };
+  }
 
-    const orgs = data.organizations?.length ? data.organizations : await fetchOrganizations();
-    const loginOrgSelect = document.getElementById("login-org-select");
-    renderOrgSelectOptions(loginOrgSelect, orgs, form.org.value.trim() || getConfig().orgId);
+  async function doLogin(form) {
+    const err = document.getElementById("login-error");
+    err.classList.add("hidden");
+    err.className = "alert alert-error hidden";
+    err.textContent = "";
 
     let orgId = form.org.value.trim();
-    if (!orgId && orgs.length === 1) orgId = orgs[0].id;
+    const { data, cfg } = await authenticateLoginForm(form, orgId || null);
+    const orgs = data.organizations || [];
+    const loginOrgSelect = document.getElementById("login-org-select");
+    renderOrgSelectOptions(loginOrgSelect, orgs, orgId || pickDefaultOrganization(orgs));
+
+    if (!orgId) orgId = pickDefaultOrganization(orgs);
     if (!orgId && orgs.length > 1) {
-      const err = document.getElementById("login-error");
+      setJwt(data.access_token);
+      saveConfig({ tenantId: data.tenant_id, apiBase: cfg.apiBase });
+      localStorage.setItem("epayroll_user_email", data.email || form.email.value.trim());
+      localStorage.setItem(ORG_CACHE_KEY, JSON.stringify(orgs));
       err.classList.remove("hidden");
-      err.textContent = "Seleccione la empresa en la lista y pulse Entrar de nuevo.";
+      err.textContent = "Seleccione su empresa y pulse Entrar.";
       return;
     }
     if (!orgId) {
-      throw new Error("No hay empresas registradas en este tenant.");
+      throw new Error("Su usuario no tiene empresas asignadas.");
     }
     if (!orgs.some((o) => o.id === orgId)) {
-      throw new Error("La empresa seleccionada no pertenece a este tenant.");
+      throw new Error("Sin acceso a la empresa seleccionada.");
     }
 
-    saveConfig({ orgId });
+    const finalLogin = orgId === data.organization_id
+      ? { data, cfg }
+      : await authenticateLoginForm(form, orgId);
+
+    setJwt(finalLogin.data.access_token);
+    saveConfig({ tenantId: finalLogin.data.tenant_id, orgId, apiBase: cfg.apiBase });
+    localStorage.setItem("epayroll_user_email", finalLogin.data.email || form.email.value.trim());
+    localStorage.setItem(ORG_CACHE_KEY, JSON.stringify(orgs));
     clearPayrollSessionState();
     await refreshOrgSwitcher();
     document.getElementById("login-modal").classList.add("hidden");
