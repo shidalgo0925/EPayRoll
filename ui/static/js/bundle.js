@@ -184,9 +184,6 @@
       }
       if (!res.ok) {
         const msg = formatApiError(data, res.status);
-        if (res.status === 401 && path.includes("/auth/login")) {
-          throw new Error(`${msg} — use la clave inicial EasyTech2026! si es su primer acceso.`);
-        }
         throw new Error(msg);
       }
       return data;
@@ -3242,7 +3239,7 @@
     if (!res.ok) {
       const detail = data.detail || "Login fallido";
       if (res.status === 401) {
-        throw new Error(`${detail} — clave inicial: EasyTech2026!`);
+        throw new Error(detail);
       }
       throw new Error(detail);
     }

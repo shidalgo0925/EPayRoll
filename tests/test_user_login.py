@@ -9,6 +9,8 @@ from fastapi.testclient import TestClient
 
 DEMO_ORG = "00000000-0000-0000-0000-000000000010"
 DEMO_PASSWORD = os.environ.get("EPAYROLL_DEMO_PASSWORD", "EasyTech2026!")
+SHIDALGO_EMAIL = "shidalgo@eastech.services"
+SHIDALGO_PASSWORD = os.environ.get("EPAYROLL_SHIDALGO_PASSWORD", DEMO_PASSWORD)
 
 
 @pytest.fixture
@@ -26,7 +28,7 @@ def login_client(monkeypatch):
 def test_login_rejects_bad_password(login_client):
     r = login_client.post(
         "/api/v1/auth/login",
-        json={"email": "shidalgo@easytech.services", "password": "wrong"},
+        json={"email": SHIDALGO_EMAIL, "password": "wrong"},
     )
     if r.status_code == 503:
         pytest.skip("BD no disponible")
@@ -37,8 +39,8 @@ def test_login_returns_only_user_companies(login_client):
     r = login_client.post(
         "/api/v1/auth/login",
         json={
-            "email": "shidalgo@easytech.services",
-            "password": DEMO_PASSWORD,
+            "email": SHIDALGO_EMAIL,
+            "password": SHIDALGO_PASSWORD,
         },
     )
     if r.status_code == 503:
@@ -46,7 +48,7 @@ def test_login_returns_only_user_companies(login_client):
     assert r.status_code == 200
     data = r.json()
     assert data["access_token"]
-    assert data["email"] == "shidalgo@easytech.services"
+    assert data["email"] == SHIDALGO_EMAIL
     orgs = data["organizations"]
     assert len(orgs) >= 1
     assert all("Multi-Tenant QA" not in o["razon_social"] for o in orgs)

@@ -422,15 +422,27 @@ def seed_demo_users(cur) -> None:
     from epayroll.auth.passwords import hash_password
 
     demo_password = os.environ.get("EPAYROLL_DEMO_PASSWORD", "EasyTech2026!")
-    pwd_hash = hash_password(demo_password)
     tenant_id = "00000000-0000-0000-0000-000000000001"
     org_ets = "00000000-0000-0000-0000-000000000010"
 
     users = [
-        ("shidalgo@easytech.services", "Seul Hidalgo", [org_ets], ["payroll_admin", "rrhh", "contador", "tenant_admin"]),
-        ("admin@easytech.services", "Administrador Demo", [org_ets], ["payroll_admin", "contador", "tenant_admin"]),
+        (
+            "shidalgo@eastech.services",
+            "Seul Hidalgo",
+            [org_ets],
+            ["payroll_admin", "rrhh", "contador", "tenant_admin"],
+            os.environ.get("EPAYROLL_SHIDALGO_PASSWORD", demo_password),
+        ),
+        (
+            "admin@easytech.services",
+            "Administrador Demo",
+            [org_ets],
+            ["payroll_admin", "contador", "tenant_admin"],
+            demo_password,
+        ),
     ]
-    for email, nombres, org_ids, roles in users:
+    for email, nombres, org_ids, roles, password in users:
+        pwd_hash = hash_password(password)
         cur.execute(
             """
             INSERT INTO app_users (tenant_id, email, password_hash, nombres)
@@ -457,6 +469,12 @@ def seed_demo_users(cur) -> None:
                 """,
                 (user_id, org_id, roles),
             )
+    cur.execute(
+        """
+        UPDATE app_users SET activo = false, updated_at = now()
+        WHERE email = 'shidalgo@easytech.services'
+        """
+    )
 
 
 def main() -> None:
