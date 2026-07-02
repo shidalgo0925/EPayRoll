@@ -127,7 +127,7 @@
     {
       "codigo_concepto": "RIESGO_PROFESIONAL",
       "condicion_aplicacion": "bruto_cotizable > 0",
-      "base_calculo": "min(bruto_cotizable, tope_css) * tasa_riesgo_empresa",
+      "base_calculo": "min(bruto_riesgo, tope_css) * tasa_riesgo_empresa",
       "unidad": "FORMULA",
       "aplica_contratos": ["INDEFINIDO", "DEFINIDO", "OBRA", "PARCIAL"],
       "prioridad_calculo": 10,

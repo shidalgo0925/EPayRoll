@@ -30,7 +30,7 @@ class PayrollInput:
     tasa_css_empleado: Decimal = Decimal("0.0975")
     tasa_se_empleado: Decimal = Decimal("0.0125")
     tasa_se_patronal: Decimal = Decimal("0.0150")
-    tasa_riesgo_empresa: Decimal = Decimal("0.0105")
+    tasa_riesgo_empresa: Decimal = Decimal("0.0098")
     tasa_prima_antiguedad_patronal: Decimal = Decimal("0.0192")
     tope_css: Decimal | None = None
 
@@ -59,6 +59,7 @@ class PayrollContext:
         bruto_cotizable = bruto_ingresos
         bruto_cotizable_se = bruto_ingresos
         bruto_gravable = bruto_ingresos
+        bruto_riesgo = self.concept_amounts.get("SALARIO_BASE", Decimal("0"))
 
         css_empleado = self.concept_amounts.get("CSS_EMPLEADO", Decimal("0"))
 
@@ -79,6 +80,7 @@ class PayrollContext:
             "bruto_cotizable": bruto_cotizable,
             "bruto_cotizable_se": bruto_cotizable_se,
             "bruto_gravable": bruto_gravable,
+            "bruto_riesgo": bruto_riesgo,
             "css_empleado": css_empleado,
             "acumulado_ytd": inp.acumulado_gravable_ytd,
             "mes": inp.mes,

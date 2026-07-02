@@ -61,9 +61,10 @@ class PayrollService:
         period = self.payroll_repo.get_period(payroll_period_id)
         org_id = period["organization_id"]
         as_of = period["fecha_fin"]
-        riesgo, tasa_css = self.payroll_repo.get_org_rates(org_id, as_of)
+        riesgo_cls, tasa_css = self.payroll_repo.get_org_rates(org_id, as_of)
         org_rates = self.legal_config_repo.resolve_rates_for_payroll(org_id, as_of)
         tasa_css = org_rates.get("tasa_css_patronal", tasa_css)
+        riesgo = org_rates.get("tasa_riesgo_empresa", riesgo_cls)
         config = load_config(as_of=as_of)
 
         mes = overrides.mes if overrides.mes is not None else period["fecha_fin"].month

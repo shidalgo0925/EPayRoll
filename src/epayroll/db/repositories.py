@@ -484,7 +484,7 @@ class PayrollRepository:
                     (organization_id, as_of, as_of),
                 )
                 row = cur.fetchone()
-                riesgo = Decimal(str(row[0])) if row else Decimal("0.0105")
+                riesgo = Decimal(str(row[0])) if row else Decimal("0.0098")
         config = load_config(as_of=as_of, database_url=database_url)
         return riesgo, config.tasa_css_patronal
 

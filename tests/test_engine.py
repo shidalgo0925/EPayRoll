@@ -30,7 +30,7 @@ def test_gt01_quincenal_administrativo():
         es_quincena=True,
         mes=6,
         tasa_css_patronal=Decimal("0.1325"),
-        tasa_riesgo_empresa=Decimal("0.0105"),
+        tasa_riesgo_empresa=Decimal("0.0098"),
         tasa_prima_antiguedad_patronal=Decimal("0.0192"),
     )
     r = engine.run(inp)
@@ -40,7 +40,7 @@ def test_gt01_quincenal_administrativo():
     assert r.amount("SE_EMPLEADO") == Decimal("11.25")
     assert r.amount("CSS_EMPLEADOR") == Decimal("119.25")
     assert r.amount("SE_EMPLEADOR") == Decimal("13.50")
-    assert r.amount("RIESGO_PROFESIONAL") == Decimal("9.45")
+    assert r.amount("RIESGO_PROFESIONAL") == Decimal("8.82")
     assert r.amount("PRIMA_ANTIGUEDAD_PATRONAL") == Decimal("17.28")
     assert r.bruto == Decimal("900.00")
 

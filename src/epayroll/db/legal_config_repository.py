@@ -133,6 +133,7 @@ class LegalConfigRepository:
             "tasa_css_patronal": Decimal("0.1325"),
             "tasa_se_empleado": Decimal("0.0125"),
             "tasa_se_patronal": Decimal("0.0150"),
+            "tasa_riesgo_empresa": Decimal("0.0098"),
         }
         for row in self.list_rates(organization_id, database_url=database_url):
             codigo = row["codigo"]
@@ -148,6 +149,8 @@ class LegalConfigRepository:
                     rates["tasa_css_patronal"] = pct
                 elif codigo == "SE_EMPLEADOR":
                     rates["tasa_se_patronal"] = pct
+                elif codigo == "RIESGO_PROFESIONAL":
+                    rates["tasa_riesgo_empresa"] = pct
         return rates
 
     def seed_org_defaults(self, organization_id: str, database_url: str | None = None) -> None:
@@ -331,11 +334,12 @@ class PlanillaViewRepository:
             se_pat = lines.get("SE_EMPLEADOR", Decimal("0"))
             riesgo = lines.get("RIESGO_PROFESIONAL", Decimal("0"))
             prima = lines.get("PRIMA_ANTIGUEDAD_PATRONAL", Decimal("0"))
-            gastos = css_pat + se_pat + riesgo + prima
+            # Gastos empresa = aportes patronales visibles en planilla (sin prima antigüedad).
+            gastos = css_pat + se_pat + riesgo
             monto_desc_en_total = Decimal("0") if descuento_ya_en_bruto else monto_desc_dias
             total_desc = cpp + desc_prest + desc_banco + monto_desc_en_total + monto_desc_tiempo - dev_isr
             cancelacion = sal_cot - total_desc
-            total_cpp = gastos + cpp
+            total_cpp = gastos + prima + cpp
 
             dias_pago = dias_pago_nominal
             item = {
