@@ -3229,7 +3229,10 @@
               <th class="crud-actions-col"></th><th>Razón social</th><th>RUC</th><th>Período pago</th><th>Moneda</th><th>Zona horaria</th><th>Activa</th>
             </tr></thead><tbody>
               ${rows.length ? rows.map((o) => `<tr data-id="${escHtml(o.id)}" class="${o.id === cfg.orgId ? "is-selected" : ""}">
-                ${crudActions(o.id, { del: o.id !== cfg.orgId })}
+                ${crudActions(o.id, {
+                  del: o.id !== cfg.orgId,
+                  extra: `<button type="button" class="btn-icon" data-clone-employees="${escHtml(o.id)}" title="Importar empleados desde otra empresa"><svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1m3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2m0 16H8V7h11v14z"/></svg></button>`,
+                })}
                 <td><strong>${escHtml(o.razon_social)}</strong>${o.id === cfg.orgId ? ' <span class="badge-ok">Activa</span>' : ""}</td>
                 <td>${escHtml(o.ruc || "—")}</td>
                 <td>${escHtml(o.periodo_pago || "QUINCENAL")}</td>
@@ -3269,6 +3272,31 @@
                   <button type="button" class="btn btn-secondary hidden" id="org-use-active">Usar como activa</button>
                   <button type="submit" class="btn" id="org-submit">Crear</button>
                   <button type="button" class="btn btn-secondary" id="org-cancel">Cancelar</button>
+                </div>
+              </form>
+            </div>
+          </aside>
+        </div>
+        <div class="crud-drawer-backdrop hidden" id="org-clone-backdrop" aria-hidden="true">
+          <aside class="crud-drawer" id="org-clone-drawer" role="dialog" aria-labelledby="org-clone-title">
+            <div class="crud-drawer-header">
+              <h2 id="org-clone-title">Importar empleados</h2>
+              <button type="button" class="btn btn-secondary btn-sm" id="org-clone-close" aria-label="Cerrar">✕</button>
+            </div>
+            <div class="crud-drawer-body">
+              <p id="org-clone-target" class="muted" style="margin-top:0"></p>
+              <p class="muted" style="font-size:0.9rem">
+                Copia empleados <strong>activos</strong> con ficha, datos personales, contrato vigente y cuenta bancaria.
+                No copia asistencia, planilla, vacaciones ni liquidaciones.
+              </p>
+              <form id="org-clone-form">
+                <input type="hidden" name="target_organization_id" value="" />
+                <label>Copiar desde
+                  <select name="source_organization_id" id="org-clone-source" class="emp-select" required></select>
+                </label>
+                <div class="crud-drawer-footer">
+                  <button type="submit" class="btn" id="org-clone-submit">Importar empleados</button>
+                  <button type="button" class="btn btn-secondary" id="org-clone-cancel">Cancelar</button>
                 </div>
               </form>
             </div>
@@ -3408,6 +3436,76 @@
           }
         },
       });
+
+      const cloneBackdrop = document.getElementById("org-clone-backdrop");
+      const cloneDrawer = document.getElementById("org-clone-drawer");
+      const cloneForm = document.getElementById("org-clone-form");
+      const cloneSource = document.getElementById("org-clone-source");
+      const cloneTargetLabel = document.getElementById("org-clone-target");
+      const orgNameById = Object.fromEntries(rows.map((o) => [o.id, o.razon_social]));
+
+      const closeCloneDrawer = () => {
+        cloneBackdrop.classList.add("hidden");
+        cloneBackdrop.setAttribute("aria-hidden", "true");
+      };
+
+      const openCloneDrawer = (targetId) => {
+        const targetName = orgNameById[targetId] || targetId;
+        cloneForm.target_organization_id.value = targetId;
+        cloneTargetLabel.textContent = `Destino: ${targetName}`;
+        cloneSource.innerHTML = rows
+          .filter((o) => o.id !== targetId)
+          .map((o) => `<option value="${escHtml(o.id)}">${escHtml(o.razon_social)}</option>`)
+          .join("");
+        if (!cloneSource.options.length) {
+          flashMsg("org-msg", "Necesita al menos otra empresa como origen", false);
+          return;
+        }
+        cloneBackdrop.classList.remove("hidden");
+        cloneBackdrop.setAttribute("aria-hidden", "false");
+      };
+
+      document.getElementById("org-clone-close").onclick = closeCloneDrawer;
+      document.getElementById("org-clone-cancel").onclick = closeCloneDrawer;
+      cloneBackdrop.onclick = (e) => {
+        if (e.target === cloneBackdrop) closeCloneDrawer();
+      };
+      cloneDrawer.onclick = (e) => e.stopPropagation();
+
+      container.querySelectorAll("[data-clone-employees]").forEach((btn) => {
+        btn.onclick = () => openCloneDrawer(btn.dataset.cloneEmployees);
+      });
+
+      cloneForm.onsubmit = async (e) => {
+        e.preventDefault();
+        const fd = new FormData(cloneForm);
+        const targetId = fd.get("target_organization_id");
+        const sourceId = fd.get("source_organization_id");
+        if (!targetId || !sourceId) return;
+        const sourceName = orgNameById[sourceId] || "origen";
+        const targetName = orgNameById[targetId] || "destino";
+        if (
+          !confirm(
+            `¿Importar empleados de «${sourceName}» hacia «${targetName}»?\n\nSe omiten cédulas que ya existan en destino.`
+          )
+        ) {
+          return;
+        }
+        try {
+          const result = await api(`/api/v1/organizations/${targetId}/employees/clone-from`, {
+            method: "POST",
+            body: JSON.stringify({ source_organization_id: sourceId }),
+          });
+          closeCloneDrawer();
+          flashMsg(
+            "org-msg",
+            `Importados ${result.cloned_count} empleado(s)` +
+              (result.skipped_count ? ` · omitidos ${result.skipped_count} (cédula duplicada)` : "")
+          );
+        } catch (err) {
+          flashMsg("org-msg", err.message, false);
+        }
+      };
     } catch (e) {
       container.innerHTML = `<div class="page-header page-header-sub"><h1>Empresas</h1></div><div class="alert alert-error">${escHtml(e.message)}</div>`;
     }

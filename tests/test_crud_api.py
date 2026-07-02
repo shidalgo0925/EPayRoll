@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
+import uuid
 
 import pytest
 from fastapi.testclient import TestClient
@@ -75,6 +76,54 @@ def test_vacation_request_update_cancel(crud_client):
 
     r3 = crud_client.delete(f"/api/v1/vacation/requests/{req_id}")
     assert r3.status_code == 204
+
+
+def test_employee_clone_from_organization(crud_client):
+    from epayroll.db.legal_config_repository import LegalConfigRepository
+    from epayroll.db.organization_repository import OrganizationRepository
+
+    org = "00000000-0000-0000-0000-000000000010"
+    tenant = "00000000-0000-0000-0000-000000000001"
+    org_repo = OrganizationRepository()
+    target = org_repo.create(tenant, "Clone Target QA", ruc=f"CLONE-{uuid.uuid4().hex[:8]}")
+    LegalConfigRepository().seed_org_defaults(target["id"])
+    target_id = target["id"]
+
+    r = crud_client.post(
+        f"/api/v1/organizations/{org}/employees",
+        json={"cedula": f"CLONE-EMP-{uuid.uuid4().hex[:6]}", "nombres": "Clone", "apellidos": "Source"},
+    )
+    assert r.status_code == 200
+    emp_id = r.json()["id"]
+    crud_client.post(
+        f"/api/v1/employees/{emp_id}/contracts",
+        json={
+            "contract_type_codigo": "INDEFINIDO",
+            "salario_base": "1200",
+            "fecha_inicio": "2026-01-01",
+            "forma_pago": "QUINCENAL",
+        },
+    )
+
+    clone = crud_client.post(
+        f"/api/v1/organizations/{target_id}/employees/clone-from",
+        json={"source_organization_id": org},
+    )
+    assert clone.status_code == 200, clone.text
+    body = clone.json()
+    assert body["cloned_count"] >= 1
+    assert any(c["source_employee_id"] == emp_id for c in body["cloned"])
+
+    listed = crud_client.get(f"/api/v1/organizations/{target_id}/employees")
+    assert listed.status_code == 200
+    assert any(e["nombres"] == "Clone" and e["apellidos"] == "Source" for e in listed.json())
+
+    again = crud_client.post(
+        f"/api/v1/organizations/{target_id}/employees/clone-from",
+        json={"source_organization_id": org},
+    )
+    assert again.status_code == 200
+    assert again.json()["skipped_count"] >= 1
 
 
 def test_incapacity_crud(crud_client):

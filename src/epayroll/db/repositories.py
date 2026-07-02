@@ -240,6 +240,108 @@ class EmployeeRepository:
                 if cur.rowcount == 0:
                     raise ValueError("Empleado no encontrado")
 
+    def clone_from_organization(
+        self,
+        source_organization_id: str,
+        target_organization_id: str,
+        *,
+        contracts_repo: ContractRepository | None = None,
+        integration_repo: Any | None = None,
+        database_url: str | None = None,
+    ) -> dict[str, Any]:
+        """Copia empleados activos de una empresa a otra (solo maestro, sin planilla/asistencia)."""
+        if source_organization_id == target_organization_id:
+            raise ValueError("Origen y destino deben ser empresas distintas")
+
+        contracts_repo = contracts_repo or ContractRepository()
+        source_rows = self.list_by_org(source_organization_id, database_url=database_url)
+        cloned: list[dict[str, Any]] = []
+        skipped: list[dict[str, Any]] = []
+
+        for emp in source_rows:
+            if self._cedula_exists_in_org(target_organization_id, emp.cedula, database_url=database_url):
+                skipped.append(
+                    {
+                        "source_employee_id": emp.id,
+                        "cedula": emp.cedula,
+                        "nombres": emp.nombres,
+                        "apellidos": emp.apellidos,
+                        "reason": "cedula_duplicada",
+                    }
+                )
+                continue
+
+            new_emp = self.create(
+                organization_id=target_organization_id,
+                cedula=emp.cedula,
+                nombres=emp.nombres,
+                apellidos=emp.apellidos,
+                email=emp.email,
+                ficha=emp.ficha,
+                telefono=emp.telefono,
+                fecha_nacimiento=emp.fecha_nacimiento,
+                estado_civil=emp.estado_civil,
+                direccion=emp.direccion,
+                database_url=database_url,
+            )
+
+            # Contrato activo del origen (salario, tipo, forma de pago).
+            if emp.salario_base is not None and emp.fecha_inicio_contrato is not None:
+                contracts_repo.create(
+                    new_emp.id,
+                    emp.contract_type_codigo or "INDEFINIDO",
+                    emp.salario_base,
+                    emp.fecha_inicio_contrato,
+                    forma_pago=emp.forma_pago or "QUINCENAL",
+                    database_url=database_url,
+                )
+
+            # Cuenta bancaria principal, si existe.
+            if integration_repo and emp.banco and emp.cuenta_bancaria:
+                integration_repo.upsert_bank_account(
+                    new_emp.id,
+                    emp.banco,
+                    emp.cuenta_bancaria,
+                    database_url=database_url,
+                )
+
+            cloned.append(
+                {
+                    "source_employee_id": emp.id,
+                    "new_employee_id": new_emp.id,
+                    "cedula": emp.cedula,
+                    "nombres": emp.nombres,
+                    "apellidos": emp.apellidos,
+                }
+            )
+
+        return {
+            "source_organization_id": source_organization_id,
+            "target_organization_id": target_organization_id,
+            "cloned_count": len(cloned),
+            "skipped_count": len(skipped),
+            "cloned": cloned,
+            "skipped": skipped,
+        }
+
+    def _cedula_exists_in_org(
+        self,
+        organization_id: str,
+        cedula: str,
+        database_url: str | None = None,
+    ) -> bool:
+        with get_connection(database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT 1 FROM employees
+                    WHERE organization_id = %s::uuid AND cedula = %s AND activo = true
+                    LIMIT 1
+                    """,
+                    (organization_id, cedula),
+                )
+                return cur.fetchone() is not None
+
 
 class ContractRepository:
     def create(

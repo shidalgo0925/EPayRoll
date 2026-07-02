@@ -174,6 +174,37 @@ class EmployeeResponse(BaseModel):
     cuenta_bancaria: str | None = None
 
 
+class EmployeeCloneFromRequest(BaseModel):
+    """Empresa origen desde la cual copiar empleados activos."""
+
+    source_organization_id: str
+
+
+class EmployeeCloneItem(BaseModel):
+    source_employee_id: str
+    new_employee_id: str
+    cedula: str
+    nombres: str
+    apellidos: str
+
+
+class EmployeeCloneSkipped(BaseModel):
+    source_employee_id: str
+    cedula: str
+    nombres: str
+    apellidos: str
+    reason: str
+
+
+class EmployeeCloneResponse(BaseModel):
+    source_organization_id: str
+    target_organization_id: str
+    cloned_count: int
+    skipped_count: int
+    cloned: list[EmployeeCloneItem]
+    skipped: list[EmployeeCloneSkipped]
+
+
 class ContractCreate(BaseModel):
     contract_type_codigo: str = "INDEFINIDO"
     salario_base: Decimal

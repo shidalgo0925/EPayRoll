@@ -44,12 +44,12 @@ def test_gt01_quincenal_administrativo():
     assert r.amount("PRIMA_ANTIGUEDAD_PATRONAL") == Decimal("17.28")
     assert r.bruto == Decimal("900.00")
 
-    # ISR: método anualizado con deducción CSS — validar rango hasta confirmación contador
+    # ISR: (bruto×13 − 11,000) × 15% / 13 / 2 quincenal
     isr = r.amount("ISR")
-    assert Decimal("110") <= isr <= Decimal("150")
+    assert isr == Decimal("71.54")
 
     neto = r.neto
-    assert Decimal("680") <= neto <= Decimal("720")
+    assert neto == Decimal("729.46")
 
 
 def test_gt02_horas_extras():

@@ -5,7 +5,7 @@
   "referencia_legal": "Art. 699-700 Código Fiscal",
   "metodo": "ANUAL_PROYECTADO",
   "factor_anualizacion": 13,
-  "deduccion_previa": "css_empleado",
+  "deduccion_previa": "ninguna",
   "items": [
     {
       "rango_desde": 0,

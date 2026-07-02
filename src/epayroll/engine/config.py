@@ -106,7 +106,7 @@ def load_config_from_seed(seed_dir: Path | None = None, as_of: date | None = Non
     ]
     isr = IsrConfig(
         factor_anualizacion=isr_data.get("factor_anualizacion", 13),
-        deduccion_previa=isr_data.get("deduccion_previa", "css_empleado"),
+        deduccion_previa=isr_data.get("deduccion_previa", "ninguna"),
         brackets=brackets,
     )
 

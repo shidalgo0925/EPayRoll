@@ -50,6 +50,8 @@ from epayroll.api.schemas import (
     ContractCreate,
     ContractResponse,
     EmployeeCreate,
+    EmployeeCloneFromRequest,
+    EmployeeCloneResponse,
     EmployeeUpdate,
     EmployeeResponse,
     LoginRequest,
@@ -582,6 +584,50 @@ def list_employees(organization_id: str) -> list[EmployeeResponse]:
     except Exception as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
     return [_employee_response(r) for r in rows]
+
+
+@app.post(
+    "/api/v1/organizations/{organization_id}/employees/clone-from",
+    response_model=EmployeeCloneResponse,
+)
+def clone_employees_from_organization(
+    organization_id: str,
+    request: Request,
+    body: EmployeeCloneFromRequest,
+) -> EmployeeCloneResponse:
+    """Copia empleados activos de otra empresa (maestro + contrato + banco; sin planilla/asistencia)."""
+    ctx = get_auth_context(request)
+    if ctx.authenticated:
+        if not ctx.has_any_role(frozenset({"tenant_admin", "admin", "payroll_admin"})):
+            raise HTTPException(status_code=403, detail="Rol insuficiente para importar empleados")
+
+    target = organization_repo.get(organization_id)
+    source = organization_repo.get(body.source_organization_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="Empresa destino no encontrada")
+    if not source:
+        raise HTTPException(status_code=404, detail="Empresa origen no encontrada")
+    if source["tenant_id"] != target["tenant_id"]:
+        raise HTTPException(status_code=400, detail="Origen y destino deben pertenecer al mismo tenant")
+
+    if ctx.authenticated and ctx.user_id:
+        if not user_repo.user_has_org_access(ctx.user_id, organization_id):
+            raise HTTPException(status_code=403, detail="Sin acceso a la empresa destino")
+        if not user_repo.user_has_org_access(ctx.user_id, body.source_organization_id):
+            raise HTTPException(status_code=403, detail="Sin acceso a la empresa origen")
+
+    try:
+        result = employees_repo.clone_from_organization(
+            body.source_organization_id,
+            organization_id,
+            contracts_repo=contracts_repo,
+            integration_repo=integration_repo,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    return EmployeeCloneResponse(**result)
 
 
 @app.get("/api/v1/employees/{employee_id}", response_model=EmployeeResponse)

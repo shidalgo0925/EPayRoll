@@ -99,6 +99,7 @@ class PayrollEngine:
                     config=self.config.isr,
                     mes=payroll_input.mes,
                     acumulado_isr_ytd=payroll_input.acumulado_isr_ytd,
+                    es_quincena=payroll_input.es_quincena,
                 )
             else:
                 raw = evaluator.eval_amount(rule.base_calculo)
