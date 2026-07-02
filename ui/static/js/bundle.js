@@ -1723,10 +1723,11 @@
     const orgId = requireOrgId();
     let empId = payrollState.employeeId;
     try {
-      const [employees, dash, coverage] = await Promise.all([
+      const [employees, dash, coverage, orgRequests] = await Promise.all([
         fetchOrgEmployees(),
         api(`/api/v1/organizations/${orgId}/vacation/dashboard`),
         api(`/api/v1/organizations/${orgId}/vacation/coverage`),
+        api(`/api/v1/organizations/${orgId}/vacation/requests`),
       ]);
       if (!empId && employees.length) empId = employees[0].id;
 
@@ -1740,27 +1741,96 @@
       }
 
       const alerts = dash.alertas || dash.empleados_alerta || [];
+      const dashEmployees = dash.employees || [];
       const scheduled = coverage.programadas || coverage.items || [];
       const nameMap = Object.fromEntries(
         employees.map((e) => [e.id, `${e.nombres || ""} ${e.apellidos || ""}`.trim()])
       );
+      const fichaMap = Object.fromEntries(employees.map((e) => [e.id, e.ficha || "—"]));
       const substituteOptions = (currentId) =>
         `<option value="">— Sin sustituto —</option>${employees
           .filter((e) => e.id !== currentId && e.activo !== false)
           .map((e) => `<option value="${escHtml(e.id)}">${escHtml(nameMap[e.id] || e.id)}</option>`)
           .join("")}`;
 
+      const renderRequestRows = (rows, ownerEmpId, showEmployee = false) =>
+        rows.length
+          ? rows
+              .map((r) => {
+                const rid = rowKey(r);
+                const rowEmpId = r.employee_id || ownerEmpId;
+                const editable = r.estado === "SOLICITADO";
+                const approved = r.estado === "APROBADO";
+                const subName = r.substitute_employee_id
+                  ? nameMap[r.substitute_employee_id] || r.substitute_employee_id
+                  : "—";
+                const approveBtn = editable
+                  ? `<button class="btn btn-secondary btn-sm" data-approve="${escHtml(rid)}">Aprobar</button>`
+                  : "";
+                const rejectBtn = editable
+                  ? `<button class="btn btn-secondary btn-sm" data-reject="${escHtml(rid)}">Rechazar</button>`
+                  : "";
+                const gozadoBtn = approved
+                  ? `<button class="btn btn-secondary btn-sm" data-gozado="${escHtml(rid)}">Marcar gozado</button>`
+                  : "";
+                const subSelect = editable
+                  ? `<select class="vac-substitute-select" data-for="${escHtml(rid)}" title="Sustituto opcional">${substituteOptions(rowEmpId)}</select>`
+                  : escHtml(subName);
+                const editBtn =
+                  editable && rowEmpId === empId
+                    ? `<button type="button" class="btn-icon" data-crud-edit="${escHtml(rid)}" title="Editar"><svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25M20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg></button>`
+                    : "";
+                const delBtn =
+                  editable && rowEmpId === empId
+                    ? `<button type="button" class="btn-icon btn-icon-danger" data-crud-del="${escHtml(rid)}" title="Cancelar"><svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12M19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg></button>`
+                    : "";
+                const empCell = showEmployee
+                  ? `<td>${escHtml(r.empleado || nameMap[rowEmpId] || rowEmpId || "—")}</td>`
+                  : "";
+                return `<tr>
+            ${empCell}<td>${escHtml(r.fecha_inicio)} → ${escHtml(r.fecha_fin)}</td><td>${escHtml(r.dias_solicitados)}</td><td>${escHtml(r.estado)}</td>
+            <td>${subSelect}</td>
+            <td class="crud-actions">${approveBtn}${rejectBtn}${gozadoBtn}${editBtn}${delBtn}</td>
+          </tr>`;
+              })
+              .join("")
+          : `<tr><td colspan="${showEmployee ? 6 : 5}">Sin solicitudes</td></tr>`;
+
+      const balanceRows = dashEmployees.length
+        ? dashEmployees
+            .map((b) => {
+              const id = b.employee_id;
+              const nombre = b.nombre_completo || nameMap[id] || id;
+              const ficha = b.ficha || fichaMap[id] || "—";
+              const alert = b.alerta_art57 ? "⚠ Art. 57" : "—";
+              return `<tr class="vac-emp-row${id === empId ? " is-selected" : ""}" data-vac-emp="${escHtml(id)}" style="cursor:pointer">
+              <td>${escHtml(ficha)}</td><td>${escHtml(nombre)}</td>
+              <td>${escHtml(b.dias_pendientes ?? "—")}</td><td>${fmtMoney(b.pasivo_estimado)}</td><td>${alert}</td>
+            </tr>`;
+            })
+            .join("")
+        : `<tr><td colspan="5">Sin empleados con contrato activo</td></tr>`;
+
       container.innerHTML = `
         <div class="page-header page-header-sub"><h1>Vacaciones</h1><p>Arts. 52–59 · pasivo org · cobertura sustitutos · sync asistencia al aprobar</p></div>
         <div class="grid">
           <div class="card"><div class="label">Pasivo vacaciones (org)</div><div class="value">${fmtMoney(dash.pasivo_total || dash.total_pasivo)}</div></div>
-          <div class="card"><div class="label">Empleados con alerta Art. 57</div><div class="value">${alerts.length}</div></div>
+          <div class="card"><div class="label">Empleados con alerta Art. 57</div><div class="value">${alerts.length || dash.alertas_art57 || 0}</div></div>
           <div class="card"><div class="label">Sin sustituto asignado</div><div class="value">${coverage.sin_sustituto ?? coverage.sin_cobertura ?? scheduled.filter((s) => !s.substitute_employee_id).length}</div></div>
+        </div>
+        <div class="panel">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:0.75rem">
+            <h2 style="margin:0">Saldo por empleado</h2>
+            <button type="button" class="btn btn-secondary btn-sm" id="vac-accrue-all">Acumular todos</button>
+          </div>
+          <div class="planilla-scroll"><table class="table-crud planilla-grid"><thead><tr>
+            <th>Ficha</th><th>Empleado</th><th>Días pend.</th><th>Pasivo est.</th><th>Alerta</th>
+          </tr></thead><tbody id="vac-balance-rows">${balanceRows}</tbody></table></div>
         </div>
         <div class="panel">
           <h2>Empleado</h2>
           <select id="vac-emp" class="emp-select">${employeeOptions(employees, empId)}</select>
-          <div id="vac-balance" class="loading" style="margin-top:0.75rem">${balance ? `Pendientes: <strong>${balance.dias_pendientes ?? balance.dias_pendiente ?? "—"}</strong> días · ganados ${balance.dias_ganados ?? "—"}` : "Selecciona empleado"}</div>
+          <div id="vac-balance" class="loading" style="margin-top:0.75rem">${balance ? `Pendientes: <strong>${balance.dias_pendientes ?? balance.dias_pendiente ?? "—"}</strong> días · ganados ${balance.dias_ganados ?? "—"} · pasivo ${fmtMoney(balance.pasivo_estimado)}` : "Selecciona empleado"}</div>
         </div>
         <div class="panel">
           <div class="crud-form-title" id="vac-form-title">Nueva solicitud</div>
@@ -1776,31 +1846,24 @@
           <div id="vac-msg"></div>
         </div>
         <div class="panel">
-          <h2>Solicitudes</h2>
+          <h2>Solicitudes del empleado</h2>
           <table class="table-crud"><thead><tr><th>Período</th><th>Días</th><th>Estado</th><th>Sustituto</th><th></th></tr></thead>
-          <tbody id="vac-requests">${requests.length ? requests.map((r) => {
-            const rid = rowKey(r);
-            const editable = r.estado === "SOLICITADO";
-            const approved = r.estado === "APROBADO";
-            const subName = r.substitute_employee_id ? nameMap[r.substitute_employee_id] || r.substitute_employee_id : "—";
-            const approveBtn = editable ? `<button class="btn btn-secondary btn-sm" data-approve="${escHtml(rid)}">Aprobar</button>` : "";
-            const rejectBtn = editable ? `<button class="btn btn-secondary btn-sm" data-reject="${escHtml(rid)}">Rechazar</button>` : "";
-            const gozadoBtn = approved ? `<button class="btn btn-secondary btn-sm" data-gozado="${escHtml(rid)}">Marcar gozado</button>` : "";
-            const subSelect = editable
-              ? `<select class="vac-substitute-select" data-for="${escHtml(rid)}" title="Sustituto opcional">${substituteOptions(empId)}</select>`
-              : escHtml(subName);
-            const editBtn = editable
-              ? `<button type="button" class="btn-icon" data-crud-edit="${escHtml(rid)}" title="Editar"><svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25M20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg></button>`
-              : "";
-            const delBtn = editable
-              ? `<button type="button" class="btn-icon btn-icon-danger" data-crud-del="${escHtml(rid)}" title="Cancelar"><svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12M19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg></button>`
-              : "";
-            return `<tr>
-            <td>${escHtml(r.fecha_inicio)} → ${escHtml(r.fecha_fin)}</td><td>${escHtml(r.dias_solicitados)}</td><td>${escHtml(r.estado)}</td>
-            <td>${subSelect}</td>
-            <td class="crud-actions">${approveBtn}${rejectBtn}${gozadoBtn}${editBtn}${delBtn}</td>
-          </tr>`;
-          }).join("") : `<tr><td colspan="5">Sin solicitudes</td></tr>`}</tbody></table>
+          <tbody id="vac-requests">${renderRequestRows(requests, empId, false)}</tbody></table>
+        </div>
+        <div class="panel">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:0.75rem">
+            <h2 style="margin:0">Todas las solicitudes</h2>
+            <select id="vac-org-filter" class="emp-select" style="max-width:12rem">
+              <option value="">Todos los estados</option>
+              <option value="SOLICITADO">Solicitado</option>
+              <option value="APROBADO">Aprobado</option>
+              <option value="GOZADO">Gozado</option>
+              <option value="RECHAZADO">Rechazado</option>
+              <option value="CANCELADO">Cancelado</option>
+            </select>
+          </div>
+          <div class="planilla-scroll"><table class="table-crud"><thead><tr><th>Empleado</th><th>Período</th><th>Días</th><th>Estado</th><th>Sustituto</th><th></th></tr></thead>
+          <tbody id="vac-org-requests">${renderRequestRows(orgRequests, null, true)}</tbody></table></div>
         </div>
         <div class="panel"><h2>Cobertura próxima</h2>
           <table><thead><tr><th>Empleado</th><th>Desde</th><th>Hasta</th><th>Sustituto</th></tr></thead><tbody>
@@ -1819,6 +1882,75 @@
       };
 
       document.getElementById("vac-emp").onchange = (e) => reloadEmp(e.target.value);
+
+      container.querySelectorAll(".vac-emp-row").forEach((row) => {
+        row.onclick = () => reloadEmp(row.dataset.vacEmp);
+      });
+
+      document.getElementById("vac-accrue-all").onclick = async () => {
+        try {
+          await api(`/api/v1/organizations/${orgId}/vacation/accrue-all`, { method: "POST", body: "{}" });
+          flashMsg("vac-msg", "Saldos recalculados para todos los empleados");
+          await renderVacations(container);
+        } catch (e) {
+          flashMsg("vac-msg", e.message, false);
+        }
+      };
+
+      document.getElementById("vac-org-filter").onchange = async (e) => {
+        const estado = e.target.value;
+        const url = estado
+          ? `/api/v1/organizations/${orgId}/vacation/requests?estado=${encodeURIComponent(estado)}`
+          : `/api/v1/organizations/${orgId}/vacation/requests`;
+        try {
+          const filtered = await api(url);
+          document.getElementById("vac-org-requests").innerHTML = renderRequestRows(filtered, null, true);
+          bindVacationActions();
+        } catch (err) {
+          flashMsg("vac-msg", err.message, false);
+        }
+      };
+
+      const bindVacationActions = () => {
+        container.querySelectorAll("[data-approve]").forEach((btn) => {
+          btn.onclick = async () => {
+            const rid = btn.dataset.approve;
+            const subEl = container.querySelector(`.vac-substitute-select[data-for="${rid}"]`);
+            const substituteId = subEl?.value || null;
+            const body = substituteId ? JSON.stringify({ substitute_employee_id: substituteId }) : "{}";
+            try {
+              await api(`/api/v1/vacation/requests/${rid}/approve`, { method: "POST", body });
+              flashMsg("vac-msg", "Solicitud aprobada — días marcados en asistencia");
+              reloadEmp(document.getElementById("vac-emp").value);
+            } catch (err) {
+              flashMsg("vac-msg", err.message, false);
+            }
+          };
+        });
+        container.querySelectorAll("[data-reject]").forEach((btn) => {
+          btn.onclick = async () => {
+            if (!confirm("¿Rechazar esta solicitud?")) return;
+            try {
+              await api(`/api/v1/vacation/requests/${btn.dataset.reject}/reject`, { method: "POST", body: "{}" });
+              flashMsg("vac-msg", "Solicitud rechazada");
+              reloadEmp(document.getElementById("vac-emp").value);
+            } catch (err) {
+              flashMsg("vac-msg", err.message, false);
+            }
+          };
+        });
+        container.querySelectorAll("[data-gozado]").forEach((btn) => {
+          btn.onclick = async () => {
+            try {
+              await api(`/api/v1/vacation/requests/${btn.dataset.gozado}/gozado`, { method: "POST", body: "{}" });
+              flashMsg("vac-msg", "Vacaciones marcadas como gozadas");
+              reloadEmp(document.getElementById("vac-emp").value);
+            } catch (err) {
+              flashMsg("vac-msg", err.message, false);
+            }
+          };
+        });
+      };
 
       const vacForm = document.getElementById("vac-form");
       const vacTitle = document.getElementById("vac-form-title");
@@ -1903,44 +2035,7 @@
         },
       });
 
-      container.querySelectorAll("[data-approve]").forEach((btn) => {
-        btn.onclick = async () => {
-          const rid = btn.dataset.approve;
-          const subEl = container.querySelector(`.vac-substitute-select[data-for="${rid}"]`);
-          const substituteId = subEl?.value || null;
-          const body = substituteId ? JSON.stringify({ substitute_employee_id: substituteId }) : "{}";
-          try {
-            await api(`/api/v1/vacation/requests/${rid}/approve`, { method: "POST", body });
-            flashMsg("vac-msg", "Solicitud aprobada — días marcados en asistencia");
-            reloadEmp(document.getElementById("vac-emp").value);
-          } catch (err) {
-            flashMsg("vac-msg", err.message, false);
-          }
-        };
-      });
-      container.querySelectorAll("[data-reject]").forEach((btn) => {
-        btn.onclick = async () => {
-          if (!confirm("¿Rechazar esta solicitud?")) return;
-          try {
-            await api(`/api/v1/vacation/requests/${btn.dataset.reject}/reject`, { method: "POST", body: "{}" });
-            flashMsg("vac-msg", "Solicitud rechazada");
-            reloadEmp(document.getElementById("vac-emp").value);
-          } catch (err) {
-            flashMsg("vac-msg", err.message, false);
-          }
-        };
-      });
-      container.querySelectorAll("[data-gozado]").forEach((btn) => {
-        btn.onclick = async () => {
-          try {
-            await api(`/api/v1/vacation/requests/${btn.dataset.gozado}/gozado`, { method: "POST", body: "{}" });
-            flashMsg("vac-msg", "Vacaciones marcadas como gozadas");
-            reloadEmp(document.getElementById("vac-emp").value);
-          } catch (err) {
-            flashMsg("vac-msg", err.message, false);
-          }
-        };
-      });
+      bindVacationActions();
     } catch (e) {
       container.innerHTML = `<div class="page-header page-header-sub"><h1>Vacaciones</h1></div><div class="alert alert-error">${e.message}</div>`;
     }

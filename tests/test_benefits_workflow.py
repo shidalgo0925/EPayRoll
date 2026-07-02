@@ -32,6 +32,38 @@ def _demo_run(wf_client):
     return org, emp_id, period_id
 
 
+def test_vacation_org_requests_and_dashboard(wf_client):
+    org, emp_id, _ = _demo_run(wf_client)
+    req = wf_client.post(
+        f"/api/v1/employees/{emp_id}/vacation/requests",
+        json={"fecha_inicio": "2026-09-01", "fecha_fin": "2026-09-05", "dias_solicitados": "5"},
+    )
+    assert req.status_code == 200, req.text
+    request_id = req.json()["request_id"]
+
+    dash = wf_client.get(f"/api/v1/organizations/{org}/vacation/dashboard")
+    assert dash.status_code == 200
+    body = dash.json()
+    assert "employees" in body
+    assert any(e["employee_id"] == emp_id for e in body["employees"])
+    match = next(e for e in body["employees"] if e["employee_id"] == emp_id)
+    assert "nombre_completo" in match
+    assert "dias_pendientes" in match
+
+    org_reqs = wf_client.get(f"/api/v1/organizations/{org}/vacation/requests")
+    assert org_reqs.status_code == 200
+    ids = [r["request_id"] for r in org_reqs.json()]
+    assert request_id in ids
+
+    filtered = wf_client.get(f"/api/v1/organizations/{org}/vacation/requests?estado=SOLICITADO")
+    assert filtered.status_code == 200
+    assert any(r["request_id"] == request_id for r in filtered.json())
+
+    accrue_all = wf_client.post(f"/api/v1/organizations/{org}/vacation/accrue-all")
+    assert accrue_all.status_code == 200
+    assert accrue_all.json()["employee_count"] >= 1
+
+
 def test_vacation_reject_and_coverage_fields(wf_client):
     org, emp_id, _ = _demo_run(wf_client)
     req = wf_client.post(

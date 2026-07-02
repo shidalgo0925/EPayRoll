@@ -1134,6 +1134,30 @@ def vacation_dashboard(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@app.post("/api/v1/organizations/{organization_id}/vacation/accrue-all")
+def vacation_accrue_all(
+    organization_id: str,
+    fecha_corte: date | None = None,
+) -> dict[str, Any]:
+    """Recalcula y persiste saldo vacaciones de todos los empleados activos."""
+    try:
+        return vacation_repo.org_dashboard(organization_id, fecha_corte=fecha_corte)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.get("/api/v1/organizations/{organization_id}/vacation/requests")
+def list_org_vacation_requests(
+    organization_id: str,
+    estado: str | None = None,
+) -> list[dict[str, Any]]:
+    """Todas las solicitudes de vacaciones de la organizacion."""
+    try:
+        return vacation_repo.list_org_requests(organization_id, estado=estado)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 @app.get("/api/v1/organizations/{organization_id}/analytics/dashboard")
 def analytics_dashboard(
     organization_id: str,

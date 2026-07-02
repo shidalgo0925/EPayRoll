@@ -369,6 +369,52 @@ class VacationRepository:
             for r in rows
         ]
 
+    def list_org_requests(
+        self,
+        organization_id: str,
+        estado: str | None = None,
+        database_url: str | None = None,
+    ) -> list[dict[str, Any]]:
+        params: list[Any] = [organization_id]
+        estado_filter = ""
+        if estado:
+            estado_filter = " AND vr.estado = %s::vacation_request_status"
+            params.append(estado)
+        with get_connection(database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    SELECT vr.id, vr.employee_id, e.nombres, e.apellidos, e.ficha,
+                           vr.fecha_inicio, vr.fecha_fin, vr.dias_solicitados, vr.estado::text,
+                           vr.created_at, vr.substitute_employee_id
+                    FROM vacation_requests vr
+                    JOIN employees e ON e.id = vr.employee_id
+                    WHERE e.organization_id = %s::uuid
+                    {estado_filter}
+                    ORDER BY vr.fecha_inicio DESC
+                    """,
+                    params,
+                )
+                rows = cur.fetchall()
+        return [
+            {
+                "id": str(r[0]),
+                "request_id": str(r[0]),
+                "employee_id": str(r[1]),
+                "nombres": r[2],
+                "apellidos": r[3],
+                "ficha": r[4],
+                "empleado": f"{r[2]} {r[3]}".strip(),
+                "fecha_inicio": r[5].isoformat(),
+                "fecha_fin": r[6].isoformat(),
+                "dias_solicitados": str(r[7]),
+                "estado": r[8],
+                "created_at": r[9].isoformat(),
+                "substitute_employee_id": str(r[10]) if r[10] else None,
+            }
+            for r in rows
+        ]
+
     def get_request(self, request_id: str, database_url: str | None = None) -> dict[str, Any] | None:
         with get_connection(database_url) as conn:
             with conn.cursor() as cur:
@@ -449,17 +495,23 @@ class VacationRepository:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT e.id FROM employees e
+                    SELECT e.id, e.nombres, e.apellidos, e.ficha
+                    FROM employees e
                     WHERE e.organization_id = %s::uuid AND e.activo = true
                     ORDER BY e.apellidos, e.nombres
                     """,
                     (organization_id,),
                 )
-                emp_ids = [str(r[0]) for r in cur.fetchall()]
+                emp_rows = cur.fetchall()
 
-        for emp_id in emp_ids:
+        for emp_id, nombres, apellidos, ficha in emp_rows:
+            emp_id = str(emp_id)
             try:
                 bal = self.accrue_employee(emp_id, fecha_corte=fecha_corte, database_url=database_url)
+                bal["nombres"] = nombres
+                bal["apellidos"] = apellidos
+                bal["ficha"] = ficha or ""
+                bal["nombre_completo"] = f"{nombres} {apellidos}".strip()
                 employees.append(bal)
                 total_pasivo += Decimal(bal["pasivo_estimado"])
                 if bal.get("alerta_art57"):
