@@ -65,6 +65,12 @@ def test_planilla_view_after_run(planilla_client):
     assert "cancelacion" in keys
     assert "total_cpp_prest" in keys
 
+    row = body["rows"][0]
+    cpp = float(row["cpp_prestaciones"])
+    gastos = float(row["gastos_empresa"])
+    total = float(row["total_cpp_prest"])
+    assert abs(total - (cpp + gastos)) < 0.02, f"total_cpp_prest debe ser cpp+gastos: {total} vs {cpp}+{gastos}"
+
 
 def test_planilla_export_xlsx_and_pdf(planilla_client):
     setup = planilla_client.get("/api/v1/demo/setup")

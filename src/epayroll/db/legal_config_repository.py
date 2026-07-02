@@ -339,7 +339,7 @@ class PlanillaViewRepository:
             monto_desc_en_total = Decimal("0") if descuento_ya_en_bruto else monto_desc_dias
             total_desc = cpp + desc_prest + desc_banco + monto_desc_en_total + monto_desc_tiempo - dev_isr
             cancelacion = sal_cot - total_desc
-            total_cpp = gastos + prima + cpp
+            total_cpp = cpp + gastos
 
             dias_pago = dias_pago_nominal
             item = {
