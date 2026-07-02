@@ -35,6 +35,20 @@ def test_login_rejects_bad_password(login_client):
     assert r.status_code == 401
 
 
+def test_login_accepts_legacy_easytech_email(login_client):
+    r = login_client.post(
+        "/api/v1/auth/login",
+        json={
+            "email": "shidalgo@easytech.services",
+            "password": SHIDALGO_PASSWORD,
+        },
+    )
+    if r.status_code == 503:
+        pytest.skip("BD no disponible")
+    assert r.status_code == 200
+    assert r.json()["email"] == SHIDALGO_EMAIL
+
+
 def test_login_returns_only_user_companies(login_client):
     r = login_client.post(
         "/api/v1/auth/login",

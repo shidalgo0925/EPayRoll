@@ -82,9 +82,34 @@ def test_login_rejects_unknown_user(auth_client):
 
 def test_create_organization_requires_admin_role(auth_client):
     token = _login(auth_client)["access_token"]
+    ruc = f"TEST-{uuid4().hex[:12]}"
     r = auth_client.post(
         "/api/v1/me/organizations",
         headers={"Authorization": f"Bearer {token}"},
-        json={"razon_social": "Empresa Test Aislada", "ruc": f"TEST-{uuid4().hex[:12]}"},
+        json={"razon_social": "Empresa Test Aislada", "ruc": ruc, "periodo_pago": "QUINCENAL"},
     )
     assert r.status_code in (201, 403)
+    if r.status_code != 201:
+        return
+    org_id = r.json()["id"]
+    listed = auth_client.get(
+        "/api/v1/me/organizations",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert listed.status_code == 200
+    assert any(o["id"] == org_id for o in listed.json())
+
+    patch = auth_client.patch(
+        f"/api/v1/organizations/{org_id}",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"razon_social": "Empresa Test Editada", "periodo_pago": "MENSUAL"},
+    )
+    assert patch.status_code == 200
+    assert patch.json()["razon_social"] == "Empresa Test Editada"
+    assert patch.json()["periodo_pago"] == "MENSUAL"
+
+    delete = auth_client.delete(
+        f"/api/v1/organizations/{org_id}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert delete.status_code == 204

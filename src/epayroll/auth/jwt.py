@@ -59,6 +59,7 @@ def decode_jwt(token: str, settings: AuthSettings) -> AuthContext:
         user_id=str(payload.get("sub")) if payload.get("sub") else None,
         organization_id=str(org_id) if org_id else None,
         roles=roles,
+        is_superuser=bool(payload.get("is_superuser")),
     )
 
 
@@ -68,6 +69,7 @@ def encode_jwt(
     user_id: str,
     organization_id: str | None = None,
     roles: list[str] | None = None,
+    is_superuser: bool = False,
     settings: AuthSettings | None = None,
     expires_hours: int = 8,
 ) -> str:
@@ -91,6 +93,8 @@ def encode_jwt(
         payload["organization_id"] = organization_id
     if roles:
         payload["roles"] = roles
+    if is_superuser:
+        payload["is_superuser"] = True
     if settings.jwt_audience:
         payload["aud"] = settings.jwt_audience
     if settings.jwt_issuer:

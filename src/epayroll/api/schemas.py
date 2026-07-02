@@ -31,11 +31,22 @@ class OrganizationSummary(BaseModel):
     razon_social: str
     ruc: str | None = None
     periodo_pago: str = "QUINCENAL"
+    moneda: str = "PAB"
+    zona_horaria: str = "America/Panama"
 
 
 class OrganizationCreate(BaseModel):
     razon_social: str = Field(min_length=2, max_length=255)
     ruc: str | None = Field(default=None, max_length=50)
+    periodo_pago: str = Field(default="QUINCENAL", pattern="^(MENSUAL|QUINCENAL|SEMANAL|HORA)$")
+
+
+class OrganizationUpdate(BaseModel):
+    razon_social: str | None = Field(default=None, min_length=2, max_length=255)
+    ruc: str | None = Field(default=None, max_length=50)
+    periodo_pago: str | None = Field(default=None, pattern="^(MENSUAL|QUINCENAL|SEMANAL|HORA)$")
+    moneda: str | None = Field(default=None, min_length=3, max_length=3)
+    zona_horaria: str | None = Field(default=None, min_length=3, max_length=64)
 
 
 class OrganizationResponse(BaseModel):
@@ -45,6 +56,52 @@ class OrganizationResponse(BaseModel):
     ruc: str | None = None
     activo: bool = True
     periodo_pago: str = "QUINCENAL"
+    moneda: str = "PAB"
+    zona_horaria: str = "America/Panama"
+
+
+class UserMembershipInput(BaseModel):
+    organization_id: str
+    roles: list[str] = Field(default_factory=lambda: ["payroll_admin"])
+
+
+class UserMembershipResponse(BaseModel):
+    organization_id: str
+    razon_social: str
+    roles: list[str] = Field(default_factory=list)
+    activo: bool = True
+
+
+class UserCreate(BaseModel):
+    email: str = Field(min_length=3, max_length=255)
+    password: str = Field(min_length=8, max_length=256)
+    nombres: str | None = Field(default=None, max_length=255)
+    is_superuser: bool = False
+    memberships: list[UserMembershipInput] = Field(default_factory=list)
+
+
+class UserUpdate(BaseModel):
+    nombres: str | None = Field(default=None, max_length=255)
+    password: str | None = Field(default=None, min_length=8, max_length=256)
+    activo: bool | None = None
+    is_superuser: bool | None = None
+    memberships: list[UserMembershipInput] | None = None
+
+
+class UserResponse(BaseModel):
+    id: str
+    tenant_id: str
+    email: str
+    nombres: str | None = None
+    activo: bool = True
+    is_superuser: bool = False
+    protected: bool = False
+    memberships: list[UserMembershipResponse] = Field(default_factory=list)
+
+
+class RoleOption(BaseModel):
+    id: str
+    label: str
 
 
 class SsoConfigResponse(BaseModel):
@@ -293,6 +350,21 @@ class AttendancePeriodProcessRequest(BaseModel):
     fecha_inicio: date
     fecha_fin: date
     run_id: str | None = None
+
+
+class AttendancePeriodOvertimeRow(BaseModel):
+    employee_id: str
+    horas_extra_diurnas: Decimal = Decimal("0")
+    horas_extra_nocturnas: Decimal = Decimal("0")
+    horas_extra_mixta_nocturnas: Decimal = Decimal("0")
+    horas_domingo: Decimal = Decimal("0")
+    horas_feriado: Decimal = Decimal("0")
+
+
+class AttendancePeriodOvertimeSaveRequest(BaseModel):
+    fecha_inicio: date
+    fecha_fin: date
+    rows: list[AttendancePeriodOvertimeRow]
 
 
 class IncapacityCreate(BaseModel):

@@ -282,6 +282,42 @@ body {
   outline-offset: 1px;
 }
 
+.header-user {
+  font-size: 0.78rem;
+  color: var(--muted);
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.header-logout-btn {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--brand-navy);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.35rem 0.65rem;
+  cursor: pointer;
+}
+
+.header-logout-btn:hover {
+  border-color: var(--brand-teal);
+  color: var(--brand-teal);
+}
+
+.header-user.hidden,
+.header-logout-btn.hidden {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .header-user {
+    display: none;
+  }
+}
+
 @media (max-width: 768px) {
   .org-switcher {
     max-width: 140px;
@@ -1738,11 +1774,25 @@ code {
   text-align: center;
 }
 
-@media print {
-  .comprobante-modal-header,
-  .comprobante-modal-footer {
-    display: none;
-  }
+.sidebar-nav button.hidden,
+.nav-section-label.hidden {
+  display: none;
+}
+
+.checkbox-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-top: 0.5rem;
+}
+
+.checkbox-inline {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
   .comprobante-modal-backdrop {
     position: static;
     background: none;

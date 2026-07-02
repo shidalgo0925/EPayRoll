@@ -8,6 +8,8 @@
   const FETCH_TIMEOUT_MS = 15000;
   const SIDEBAR_KEY = "epayroll_sidebar_collapsed";
   const ORG_CACHE_KEY = "epayroll_orgs_cache";
+  let sessionCanManageUsers = false;
+  let sessionIsSuperuser = false;
 
   const PAGE_TITLES = {
     dashboard: "Dashboard",
@@ -18,6 +20,8 @@
     vacations: "Vacaciones",
     incapacities: "Incapacidades",
     liquidations: "Liquidaciones",
+    organizations: "Empresas",
+    users: "Usuarios",
     settings: "Configuración",
   };
 
@@ -93,11 +97,18 @@
     if (!getJwt() && !cfg.tenantId) {
       sel.innerHTML = `<option value="">— Inicie sesión —</option>`;
       sel.disabled = true;
+      updateSessionChrome(false);
       return [];
     }
     try {
       const orgs = await fetchOrganizations();
-      renderOrgSelectOptions(sel, orgs, cfg.orgId);
+      let activeId = cfg.orgId;
+      if (!orgs.some((o) => o.id === activeId)) {
+        activeId = pickDefaultOrganization(orgs);
+        if (activeId) saveConfig({ orgId: activeId });
+      }
+      renderOrgSelectOptions(sel, orgs, activeId);
+      updateSessionChrome(true);
       return orgs;
     } catch {
       let cached = [];
@@ -106,9 +117,54 @@
       } catch {
         cached = [];
       }
-      renderOrgSelectOptions(sel, cached, cfg.orgId);
+      let activeId = cfg.orgId;
+      if (cached.length && !cached.some((o) => o.id === activeId)) {
+        activeId = pickDefaultOrganization(cached);
+        if (activeId) saveConfig({ orgId: activeId });
+      }
+      renderOrgSelectOptions(sel, cached, activeId);
+      updateSessionChrome(!!getJwt());
       return cached;
     }
+  }
+
+  function doLogout() {
+    setJwt("");
+    setRefreshToken("");
+    saveConfig({ tenantId: "", orgId: "" });
+    localStorage.removeItem("epayroll_user_email");
+    localStorage.removeItem(ORG_CACHE_KEY);
+    clearPayrollSessionState();
+    const sel = document.getElementById("org-switcher");
+    if (sel) {
+      sel.innerHTML = `<option value="">— Inicie sesión —</option>`;
+      sel.disabled = true;
+    }
+    updateSessionChrome(false);
+    clearSessionNav();
+    document.getElementById("login-modal")?.classList.remove("hidden");
+    const container = pageContainer();
+    if (container) {
+      container.innerHTML = `<div class="page-header page-header-sub"><h1>Bienvenido</h1><p>Inicie sesión para continuar.</p></div>`;
+    }
+  }
+
+  function updateSessionChrome(loggedIn) {
+    const email = localStorage.getItem("epayroll_user_email") || "";
+    const userEl = document.getElementById("header-user");
+    const logoutBtn = document.getElementById("btn-header-logout");
+    const show = loggedIn && !!getJwt();
+    if (userEl) {
+      userEl.textContent = email || "Sesión activa";
+      userEl.classList.toggle("hidden", !show);
+    }
+    if (logoutBtn) logoutBtn.classList.toggle("hidden", !show);
+  }
+
+  function clearSessionNav() {
+    sessionCanManageUsers = false;
+    sessionIsSuperuser = false;
+    document.querySelectorAll(".nav-admin-only").forEach((el) => el.classList.add("hidden"));
   }
 
   function switchOrganization(orgId) {
@@ -2361,6 +2417,16 @@
         <p id="att-grid-status" class="loading"></p>
         <div id="att-grid"><p class="loading">Cargando tabla…</p></div>
       </div>
+      <div class="panel">
+        <h2>Horas extra del período (global)</h2>
+        <p class="loading" style="margin-bottom:0.75rem">Capture el <strong>total de horas extra del período</strong> por empleado. La tabla diaria de arriba sigue igual (tardanzas, ausencias, A/V/I). Si guarda aquí, esas horas reemplazan el cálculo por día al procesar planilla.</p>
+        <div class="btn-row" style="margin-bottom:0.75rem">
+          <button type="button" class="btn" id="att-ot-load">Cargar empleados</button>
+          <button type="button" class="btn btn-secondary" id="att-ot-save">Guardar horas extra global</button>
+        </div>
+        <p id="att-ot-status" class="loading"></p>
+        <div id="att-ot-grid"><p class="loading">Pulse «Cargar empleados»</p></div>
+      </div>
       <details class="panel">
         <summary style="cursor:pointer;font-weight:600">Importar CSV (opcional)</summary>
         <form id="att-import-form" style="margin-top:0.75rem">
@@ -2445,7 +2511,8 @@
               <th>Cédula</th><th>Nombre</th><th>Días</th><th>Extra D</th><th>Extra N</th><th>Dom.</th><th>Feriado</th><th>Aus.</th><th>Desc. min</th>
             </tr></thead><tbody>${emps.map((e) => `<tr>
               <td>${escHtml(e.cedula)}</td><td>${escHtml(e.nombre)}</td>
-              <td>${escHtml(e.dias_trabajados)}</td><td>${escHtml(e.horas_extra_diurnas)}</td>
+              <td>${escHtml(e.dias_trabajados)}</td>
+              <td>${escHtml(e.horas_extra_diurnas)}${e.overtime_source === "global" ? " <span class=\"badge-ok\" title=\"Captura global\">G</span>" : ""}</td>
               <td>${escHtml(e.horas_extra_nocturnas)}</td><td>${escHtml(e.horas_domingo)}</td>
               <td>${escHtml(e.horas_feriado)}</td><td>${e.ausencias}</td>
               <td>${escHtml(e.descuento_minutos ?? 0)}</td>
@@ -2456,7 +2523,86 @@
       }
     };
 
-    document.getElementById("att-period-form").onchange = () => loadGrid(true);
+    const renderGlobalOvertimeGrid = (rows) => {
+      const el = document.getElementById("att-ot-grid");
+      if (!el) return;
+      if (!rows.length) {
+        el.innerHTML = `<p class="loading">Sin empleados activos en esta empresa</p>`;
+        return;
+      }
+      el.innerHTML = `<div class="planilla-scroll"><table class="table-crud planilla-grid" id="att-ot-table"><thead><tr>
+        <th>Ficha</th><th>Nombre</th><th>Cédula</th>
+        <th>Extra diurna</th><th>Extra nocturna</th><th>Extra mixta</th><th>Domingo</th><th>Feriado</th>
+      </tr></thead><tbody>${rows.map((e) => `<tr data-employee-id="${escHtml(e.employee_id)}">
+        <td>${escHtml(e.ficha || "—")}</td>
+        <td><strong>${escHtml(e.nombres)} ${escHtml(e.apellidos)}</strong></td>
+        <td>${escHtml(e.cedula)}</td>
+        <td><input type="number" step="0.01" min="0" class="att-ot-input" data-field="horas_extra_diurnas" value="${escHtml(e.horas_extra_diurnas)}" style="width:5rem" /></td>
+        <td><input type="number" step="0.01" min="0" class="att-ot-input" data-field="horas_extra_nocturnas" value="${escHtml(e.horas_extra_nocturnas)}" style="width:5rem" /></td>
+        <td><input type="number" step="0.01" min="0" class="att-ot-input" data-field="horas_extra_mixta_nocturnas" value="${escHtml(e.horas_extra_mixta_nocturnas)}" style="width:5rem" /></td>
+        <td><input type="number" step="0.01" min="0" class="att-ot-input" data-field="horas_domingo" value="${escHtml(e.horas_domingo)}" style="width:5rem" /></td>
+        <td><input type="number" step="0.01" min="0" class="att-ot-input" data-field="horas_feriado" value="${escHtml(e.horas_feriado)}" style="width:5rem" /></td>
+      </tr>`).join("")}</tbody></table></div>`;
+    };
+
+    const loadGlobalOvertime = async () => {
+      const { fecha_inicio, fecha_fin } = getRange();
+      const status = document.getElementById("att-ot-status");
+      if (status) status.textContent = "Cargando…";
+      try {
+        const data = await api(
+          `/api/v1/organizations/${orgId}/attendance/overtime-global?fecha_inicio=${fecha_inicio}&fecha_fin=${fecha_fin}`
+        );
+        renderGlobalOvertimeGrid(data.employees || []);
+        const saved = (data.employees || []).filter((e) => e.has_global).length;
+        if (status) {
+          status.textContent = `${(data.employees || []).length} empleado(s) · ${saved} con captura global guardada`;
+        }
+      } catch (e) {
+        if (status) status.textContent = e.message;
+        document.getElementById("att-ot-grid").innerHTML = `<p class="alert alert-error">${escHtml(e.message)}</p>`;
+      }
+    };
+
+    const collectGlobalOvertimeRows = () => {
+      const rows = [];
+      document.querySelectorAll("#att-ot-table tbody tr").forEach((tr) => {
+        const employee_id = tr.dataset.employeeId;
+        if (!employee_id) return;
+        const row = { employee_id };
+        tr.querySelectorAll(".att-ot-input").forEach((inp) => {
+          row[inp.dataset.field] = inp.value === "" ? 0 : Number(inp.value);
+        });
+        rows.push(row);
+      });
+      return rows;
+    };
+
+    document.getElementById("att-ot-load").onclick = () => loadGlobalOvertime();
+    document.getElementById("att-ot-save").onclick = async () => {
+      const { fecha_inicio, fecha_fin } = getRange();
+      const rows = collectGlobalOvertimeRows();
+      if (!rows.length) return;
+      const status = document.getElementById("att-ot-status");
+      if (status) status.textContent = "Guardando…";
+      try {
+        const r = await api(`/api/v1/organizations/${orgId}/attendance/overtime-global`, {
+          method: "POST",
+          body: JSON.stringify({ fecha_inicio, fecha_fin, rows }),
+        });
+        if (status) status.textContent = `Guardado · ${r.saved} empleado(s)`;
+        await loadGlobalOvertime();
+        flashMsg("att-msg", "Horas extra global guardadas");
+      } catch (e) {
+        if (status) status.textContent = e.message;
+        flashMsg("att-msg", e.message, false);
+      }
+    };
+
+    document.getElementById("att-period-form").onchange = () => {
+      loadGrid(true);
+      loadGlobalOvertime();
+    };
 
     document.getElementById("att-ensure").onclick = async () => {
       try {
@@ -2577,6 +2723,7 @@
     };
 
     await loadGrid(true);
+    await loadGlobalOvertime();
   }
 
   async function renderIncapacities(container) {
@@ -2964,6 +3111,440 @@
     }
   }
 
+  async function renderOrganizations(container) {
+    container.innerHTML = `<p class="loading">Cargando empresas…</p>`;
+    try {
+      const rows = await api("/api/v1/me/organizations");
+      const cfg = getConfig();
+      container.innerHTML = `
+        <div class="page-header-actions">
+          <div class="page-header page-header-sub">
+            <h1>Empresas</h1>
+            <p>Alta, edición y configuración de compañías asignadas a su usuario</p>
+          </div>
+          <button type="button" class="btn" id="org-new">+ Nueva empresa</button>
+        </div>
+        <div class="panel emp-list-panel">
+          <div class="panel-toolbar">
+            <h2 style="margin:0">Compañías (${rows.length})</h2>
+          </div>
+          <div id="org-msg"></div>
+          <div class="planilla-scroll">
+            <table class="table-crud planilla-grid" id="org-table"><thead><tr>
+              <th class="crud-actions-col"></th><th>Razón social</th><th>RUC</th><th>Período pago</th><th>Moneda</th><th>Zona horaria</th><th>Activa</th>
+            </tr></thead><tbody>
+              ${rows.length ? rows.map((o) => `<tr data-id="${escHtml(o.id)}" class="${o.id === cfg.orgId ? "is-selected" : ""}">
+                ${crudActions(o.id, { del: o.id !== cfg.orgId })}
+                <td><strong>${escHtml(o.razon_social)}</strong>${o.id === cfg.orgId ? ' <span class="badge-ok">Activa</span>' : ""}</td>
+                <td>${escHtml(o.ruc || "—")}</td>
+                <td>${escHtml(o.periodo_pago || "QUINCENAL")}</td>
+                <td>${escHtml(o.moneda || "PAB")}</td>
+                <td>${escHtml(o.zona_horaria || "America/Panama")}</td>
+                <td>Sí</td>
+              </tr>`).join("") : `<tr><td colspan="7">Sin empresas — pulse <strong>Nueva empresa</strong></td></tr>`}
+            </tbody></table>
+          </div>
+        </div>
+        <div class="crud-drawer-backdrop hidden" id="org-drawer-backdrop" aria-hidden="true">
+          <aside class="crud-drawer" id="org-drawer" role="dialog" aria-labelledby="org-form-title">
+            <div class="crud-drawer-header">
+              <h2 id="org-form-title">Nueva empresa</h2>
+              <button type="button" class="btn btn-secondary btn-sm" id="org-drawer-close" aria-label="Cerrar">✕</button>
+            </div>
+            <div class="crud-drawer-body">
+              <form id="org-form">
+                <input type="hidden" name="organization_id" value="" />
+                <fieldset class="form-section"><legend>Identificación</legend>
+                  <label>Razón social<input name="razon_social" required minlength="2" maxlength="255" placeholder="Easy Technology Services S.A." /></label>
+                  <label>RUC<input name="ruc" maxlength="50" placeholder="Ej. 155612345-2-2020" /></label>
+                </fieldset>
+                <fieldset class="form-section"><legend>Operación planilla</legend>
+                  <label>Período de pago
+                    <select name="periodo_pago">
+                      <option value="QUINCENAL">Quincenal</option>
+                      <option value="MENSUAL">Mensual</option>
+                      <option value="SEMANAL">Semanal</option>
+                      <option value="HORA">Por hora</option>
+                    </select>
+                  </label>
+                  <label>Moneda<input name="moneda" maxlength="3" value="PAB" placeholder="PAB" /></label>
+                  <label>Zona horaria<input name="zona_horaria" maxlength="64" value="America/Panama" placeholder="America/Panama" /></label>
+                </fieldset>
+                <div class="crud-drawer-footer">
+                  <button type="button" class="btn btn-secondary hidden" id="org-use-active">Usar como activa</button>
+                  <button type="submit" class="btn" id="org-submit">Crear</button>
+                  <button type="button" class="btn btn-secondary" id="org-cancel">Cancelar</button>
+                </div>
+              </form>
+            </div>
+          </aside>
+        </div>`;
+
+      const backdrop = document.getElementById("org-drawer-backdrop");
+      const drawer = document.getElementById("org-drawer");
+      const form = document.getElementById("org-form");
+      const title = document.getElementById("org-form-title");
+      const submit = document.getElementById("org-submit");
+      const useActiveBtn = document.getElementById("org-use-active");
+      let selectedRowId = "";
+
+      const highlightRow = (id) => {
+        container.querySelectorAll("#org-table tbody tr").forEach((tr) => {
+          tr.classList.toggle("is-selected", id && tr.dataset.id === id);
+        });
+        selectedRowId = id || "";
+      };
+
+      const closeDrawer = () => {
+        backdrop.classList.add("hidden");
+        backdrop.setAttribute("aria-hidden", "true");
+      };
+
+      const openDrawer = (mode = "create") => {
+        title.textContent = mode === "edit" ? "Editar empresa" : "Nueva empresa";
+        submit.textContent = mode === "edit" ? "Guardar" : "Crear";
+        useActiveBtn.classList.toggle("hidden", mode !== "edit");
+        backdrop.classList.remove("hidden");
+        backdrop.setAttribute("aria-hidden", "false");
+        form.querySelector("[name=razon_social]")?.focus();
+      };
+
+      const resetForm = () => {
+        form.reset();
+        form.organization_id.value = "";
+        form.moneda.value = "PAB";
+        form.zona_horaria.value = "America/Panama";
+        form.periodo_pago.value = "QUINCENAL";
+        highlightRow("");
+        closeDrawer();
+      };
+
+      document.getElementById("org-drawer-close").onclick = resetForm;
+      document.getElementById("org-cancel").onclick = resetForm;
+      backdrop.onclick = (e) => {
+        if (e.target === backdrop) resetForm();
+      };
+      drawer.onclick = (e) => e.stopPropagation();
+
+      document.getElementById("org-new").onclick = () => {
+        form.reset();
+        form.organization_id.value = "";
+        form.moneda.value = "PAB";
+        form.zona_horaria.value = "America/Panama";
+        form.periodo_pago.value = "QUINCENAL";
+        highlightRow("");
+        openDrawer("create");
+      };
+
+      const fillForm = (org) => {
+        form.organization_id.value = org.id;
+        form.razon_social.value = org.razon_social || "";
+        form.ruc.value = org.ruc || "";
+        form.periodo_pago.value = org.periodo_pago || "QUINCENAL";
+        form.moneda.value = org.moneda || "PAB";
+        form.zona_horaria.value = org.zona_horaria || "America/Panama";
+      };
+
+      useActiveBtn.onclick = async () => {
+        const id = form.organization_id.value;
+        if (!id) return;
+        saveConfig({ orgId: id });
+        await refreshOrgSwitcher();
+        flashMsg("org-msg", "Empresa activa actualizada");
+        await renderOrganizations(container);
+      };
+
+      form.onsubmit = async (e) => {
+        e.preventDefault();
+        const fd = new FormData(form);
+        const id = fd.get("organization_id");
+        const payload = {
+          razon_social: fd.get("razon_social").trim(),
+          ruc: fd.get("ruc").trim() || null,
+          periodo_pago: fd.get("periodo_pago"),
+          moneda: fd.get("moneda").trim().toUpperCase() || "PAB",
+          zona_horaria: fd.get("zona_horaria").trim() || "America/Panama",
+        };
+        try {
+          if (id) {
+            await apiPatch(`/api/v1/organizations/${id}`, payload);
+            flashMsg("org-msg", "Empresa actualizada");
+          } else {
+            const created = await api("/api/v1/me/organizations", {
+              method: "POST",
+              body: JSON.stringify(payload),
+            });
+            saveConfig({ orgId: created.id });
+            flashMsg("org-msg", `Empresa «${created.razon_social}» creada`);
+          }
+          resetForm();
+          await refreshOrgSwitcher();
+          await renderOrganizations(container);
+        } catch (err) {
+          flashMsg("org-msg", err.message, false);
+        }
+      };
+
+      bindCrud(container, {
+        onEdit: async (id) => {
+          try {
+            const org = await api(`/api/v1/organizations/${id}/profile`);
+            fillForm(org);
+            highlightRow(id);
+            openDrawer("edit");
+          } catch (err) {
+            flashMsg("org-msg", err.message, false);
+          }
+        },
+        onDelete: async (id) => {
+          if (id === getConfig().orgId) {
+            flashMsg("org-msg", "No puede dar de baja la empresa activa — cambie primero a otra", false);
+            return;
+          }
+          if (!confirm("¿Dar de baja esta empresa? Los datos históricos se conservan.")) return;
+          try {
+            await apiDelete(`/api/v1/organizations/${id}`);
+            flashMsg("org-msg", "Empresa dada de baja");
+            if (selectedRowId === id) closeDrawer();
+            await refreshOrgSwitcher();
+            await renderOrganizations(container);
+          } catch (err) {
+            flashMsg("org-msg", err.message, false);
+          }
+        },
+      });
+    } catch (e) {
+      container.innerHTML = `<div class="page-header page-header-sub"><h1>Empresas</h1></div><div class="alert alert-error">${escHtml(e.message)}</div>`;
+    }
+  }
+
+  async function refreshSessionAccess() {
+    if (!getJwt()) {
+      sessionCanManageUsers = false;
+      sessionIsSuperuser = false;
+    } else {
+      try {
+        const me = await api("/api/v1/auth/me");
+        sessionCanManageUsers = !!me.can_manage_users;
+        sessionIsSuperuser = !!me.is_superuser;
+      } catch {
+        sessionCanManageUsers = false;
+        sessionIsSuperuser = false;
+      }
+    }
+    document.querySelectorAll(".nav-admin-only").forEach((el) => {
+      el.classList.toggle("hidden", !sessionCanManageUsers);
+    });
+  }
+
+  function roleLabels(roles) {
+    const map = {
+      tenant_admin: "Admin tenant",
+      payroll_admin: "Planilla",
+      rrhh: "RR.HH.",
+      contador: "Contador",
+      gerente: "Gerente",
+    };
+    return (roles || []).map((r) => map[r] || r).join(", ") || "—";
+  }
+
+  async function renderUsers(container) {
+    if (!sessionCanManageUsers) {
+      container.innerHTML = `<div class="alert alert-error">No tiene permisos para administrar usuarios.</div>`;
+      return;
+    }
+    container.innerHTML = `<p class="loading">Cargando usuarios…</p>`;
+    try {
+      const [rows, roleOpts, orgs] = await Promise.all([
+        api("/api/v1/users"),
+        api("/api/v1/users/roles"),
+        fetchOrganizations(),
+      ]);
+      const roleChecks = roleOpts
+        .map(
+          (r) =>
+            `<label class="checkbox-inline"><input type="checkbox" name="role_${escHtml(r.id)}" value="${escHtml(r.id)}" /> ${escHtml(r.label)}</label>`
+        )
+        .join("");
+      const orgOptions = orgs
+        .map((o) => `<option value="${escHtml(o.id)}">${escHtml(o.razon_social)}</option>`)
+        .join("");
+
+      container.innerHTML = `
+        <div class="page-header-actions">
+          <div class="page-header page-header-sub">
+            <h1>Usuarios</h1>
+            <p>Superusuario protegido · administradores y roles por empresa</p>
+          </div>
+          <button type="button" class="btn" id="usr-new">+ Nuevo usuario</button>
+        </div>
+        <div class="panel emp-list-panel">
+          <div id="usr-msg"></div>
+          <div class="planilla-scroll">
+            <table class="table-crud planilla-grid" id="usr-table"><thead><tr>
+              <th class="crud-actions-col"></th><th>Correo</th><th>Nombre</th><th>Tipo</th><th>Empresas / roles</th><th>Estado</th>
+            </tr></thead><tbody>
+              ${rows.length ? rows.map((u) => `<tr data-id="${escHtml(u.id)}">
+                ${crudActions(u.id, { del: !u.protected })}
+                <td><strong>${escHtml(u.email)}</strong></td>
+                <td>${escHtml(u.nombres || "—")}</td>
+                <td>${u.is_superuser ? '<span class="badge-ok">Superusuario</span>' : "Administrador"}</td>
+                <td>${escHtml(u.memberships.map((m) => `${m.razon_social}: ${roleLabels(m.roles)}`).join(" · ") || "—")}</td>
+                <td>${u.activo ? "Activo" : "Inactivo"}</td>
+              </tr>`).join("") : `<tr><td colspan="6">Sin usuarios</td></tr>`}
+            </tbody></table>
+          </div>
+        </div>
+        <div class="crud-drawer-backdrop hidden" id="usr-drawer-backdrop" aria-hidden="true">
+          <aside class="crud-drawer" id="usr-drawer" role="dialog" aria-labelledby="usr-form-title">
+            <div class="crud-drawer-header">
+              <h2 id="usr-form-title">Nuevo usuario</h2>
+              <button type="button" class="btn btn-secondary btn-sm" id="usr-drawer-close" aria-label="Cerrar">✕</button>
+            </div>
+            <div class="crud-drawer-body">
+              <form id="usr-form">
+                <input type="hidden" name="user_id" value="" />
+                <input type="hidden" name="protected" value="" />
+                <fieldset class="form-section"><legend>Cuenta</legend>
+                  <label>Correo<input name="email" type="email" required autocomplete="off" /></label>
+                  <label>Nombre<input name="nombres" maxlength="255" placeholder="Nombre completo" /></label>
+                  <label>Contraseña<input name="password" type="password" autocomplete="new-password" placeholder="Mínimo 8 caracteres" /></label>
+                  <p class="login-hint" id="usr-password-hint">Deje vacío al editar para mantener la contraseña actual.</p>
+                </fieldset>
+                <fieldset class="form-section"><legend>Empresa y roles</legend>
+                  <label>Empresa<select name="organization_id">${orgOptions}</select></label>
+                  <div class="checkbox-group">${roleChecks}</div>
+                </fieldset>
+              </form>
+            </div>
+            <div class="crud-drawer-footer">
+              <button type="submit" class="btn" id="usr-submit" form="usr-form">Crear</button>
+              <button type="button" class="btn btn-secondary" id="usr-cancel">Cancelar</button>
+            </div>
+          </aside>
+        </div>`;
+
+      const backdrop = document.getElementById("usr-drawer-backdrop");
+      const form = document.getElementById("usr-form");
+      const title = document.getElementById("usr-form-title");
+      const submit = document.getElementById("usr-submit");
+      const emailInput = form.querySelector("[name=email]");
+      const pwdInput = form.querySelector("[name=password]");
+      const pwdHint = document.getElementById("usr-password-hint");
+
+      const closeDrawer = () => {
+        backdrop.classList.add("hidden");
+        backdrop.setAttribute("aria-hidden", "true");
+      };
+      const openDrawer = (mode = "create") => {
+        title.textContent = mode === "edit" ? "Editar usuario" : "Nuevo usuario";
+        submit.textContent = mode === "edit" ? "Guardar" : "Crear";
+        emailInput.readOnly = mode === "edit";
+        pwdInput.required = mode === "create";
+        pwdHint.classList.toggle("hidden", mode === "create");
+        backdrop.classList.remove("hidden");
+        backdrop.setAttribute("aria-hidden", "false");
+      };
+      const resetForm = () => {
+        form.reset();
+        form.user_id.value = "";
+        form.protected.value = "";
+        emailInput.readOnly = false;
+        closeDrawer();
+      };
+
+      document.getElementById("usr-drawer-close").onclick = resetForm;
+      document.getElementById("usr-cancel").onclick = resetForm;
+      backdrop.onclick = (e) => {
+        if (e.target === backdrop) resetForm();
+      };
+      document.getElementById("usr-drawer").onclick = (e) => e.stopPropagation();
+      document.getElementById("usr-new").onclick = () => {
+        resetForm();
+        if (orgs.length) form.organization_id.value = orgs[0].id;
+        form.querySelector("[name=role_tenant_admin]")?.click();
+        openDrawer("create");
+      };
+
+      const selectedRoles = () =>
+        roleOpts.map((r) => r.id).filter((id) => form.querySelector(`[name=role_${id}]`)?.checked);
+
+      const fillForm = (user) => {
+        form.user_id.value = user.id;
+        form.protected.value = user.protected ? "1" : "";
+        form.email.value = user.email;
+        form.nombres.value = user.nombres || "";
+        form.password.value = "";
+        const mem = user.memberships[0];
+        if (mem) {
+          form.organization_id.value = mem.organization_id;
+          roleOpts.forEach((r) => {
+            const cb = form.querySelector(`[name=role_${r.id}]`);
+            if (cb) cb.checked = (mem.roles || []).includes(r.id);
+          });
+        }
+      };
+
+      form.onsubmit = async (e) => {
+        e.preventDefault();
+        const id = form.user_id.value;
+        const roles = selectedRoles();
+        if (!roles.length) {
+          flashMsg("usr-msg", "Seleccione al menos un rol", false);
+          return;
+        }
+        const membership = {
+          organization_id: form.organization_id.value,
+          roles,
+        };
+        const payload = {
+          nombres: form.nombres.value.trim() || null,
+          memberships: [membership],
+        };
+        try {
+          if (id) {
+            if (form.password.value.trim()) payload.password = form.password.value;
+            await apiPatch(`/api/v1/users/${id}`, payload);
+            flashMsg("usr-msg", "Usuario actualizado");
+          } else {
+            payload.email = form.email.value.trim().toLowerCase();
+            payload.password = form.password.value;
+            await api("/api/v1/users", { method: "POST", body: JSON.stringify(payload) });
+            flashMsg("usr-msg", "Usuario creado");
+          }
+          resetForm();
+          await renderUsers(container);
+        } catch (err) {
+          flashMsg("usr-msg", err.message, false);
+        }
+      };
+
+      bindCrud(container, {
+        onEdit: async (uid) => {
+          try {
+            const user = await api(`/api/v1/users/${uid}`);
+            fillForm(user);
+            openDrawer("edit");
+          } catch (err) {
+            flashMsg("usr-msg", err.message, false);
+          }
+        },
+        onDelete: async (uid) => {
+          if (!confirm("¿Dar de baja este usuario?")) return;
+          try {
+            await apiDelete(`/api/v1/users/${uid}`);
+            flashMsg("usr-msg", "Usuario dado de baja");
+            await renderUsers(container);
+          } catch (err) {
+            flashMsg("usr-msg", err.message, false);
+          }
+        },
+      });
+    } catch (e) {
+      container.innerHTML = `<div class="page-header page-header-sub"><h1>Usuarios</h1></div><div class="alert alert-error">${escHtml(e.message)}</div>`;
+    }
+  }
+
   const pages = {
     dashboard: renderDashboard,
     employees: renderEmployees,
@@ -2973,6 +3554,8 @@
     vacations: renderVacations,
     incapacities: renderIncapacities,
     liquidations: renderLiquidations,
+    organizations: renderOrganizations,
+    users: renderUsers,
     settings: renderSettings,
   };
 
@@ -3017,7 +3600,7 @@
           <p class="settings-hint">Solo se listan las empresas asignadas a su usuario.</p>
           <div class="settings-actions">
             <button type="button" class="btn" id="cfg-save">Guardar</button>
-            <button type="button" class="btn btn-secondary" id="cfg-org-create">Nueva empresa</button>
+            <button type="button" class="btn btn-secondary" id="cfg-org-manage">Administrar empresas</button>
           </div>
           <div id="cfg-save-msg"></div>
         </div>
@@ -3061,24 +3644,7 @@
     };
 
     document.getElementById("cfg-save").onclick = () => persist("Configuración guardada");
-    document.getElementById("cfg-org-create").onclick = async () => {
-      const nombre = prompt("Razón social de la nueva empresa:");
-      if (!nombre?.trim()) return;
-      const ruc = prompt("RUC (opcional):") || null;
-      try {
-        const created = await api("/api/v1/me/organizations", {
-          method: "POST",
-          body: JSON.stringify({ razon_social: nombre.trim(), ruc: ruc?.trim() || null }),
-        });
-        const orgs = await refreshOrgSwitcher();
-        renderOrgSelectOptions(cfgOrgSelect, orgs, created.id);
-        renderOrgSelectOptions(document.getElementById("org-switcher"), orgs, created.id);
-        saveConfig({ orgId: created.id });
-        flashMsg("cfg-save-msg", `Empresa «${created.razon_social}» creada`, true);
-      } catch (e) {
-        flashMsg("cfg-save-msg", e.message, false);
-      }
-    };
+    document.getElementById("cfg-org-manage").onclick = () => navigate("organizations");
     document.getElementById("cfg-test").onclick = async () => {
       const el = document.getElementById("cfg-health");
       el.innerHTML = `<span class="loading">Verificando…</span>`;
@@ -3094,18 +3660,7 @@
     document.getElementById("btn-login-open").onclick = () => {
       document.getElementById("login-modal").classList.remove("hidden");
     };
-    document.getElementById("btn-logout").onclick = () => {
-      setJwt("");
-      setRefreshToken("");
-      saveConfig({ orgId: "" });
-      localStorage.removeItem("epayroll_user_email");
-      localStorage.removeItem(ORG_CACHE_KEY);
-      clearPayrollSessionState();
-      document.getElementById("session-badge").className = "session-badge guest";
-      document.getElementById("session-badge").textContent = sessionLabel();
-      refreshOrgSwitcher();
-      document.getElementById("login-modal").classList.remove("hidden");
-    };
+    document.getElementById("btn-logout").onclick = () => doLogout();
 
     const renderLegal = async () => {
       const orgId = document.getElementById("cfg-org").value.trim() || requireOrgId();
@@ -3212,12 +3767,14 @@
   }
 
   function finishLogin(data, cfg, orgId, orgs, form) {
+    const resolvedOrg = orgs.some((o) => o.id === orgId) ? orgId : pickDefaultOrganization(orgs);
     setJwt(data.access_token);
-    saveConfig({ tenantId: data.tenant_id, orgId, apiBase: cfg.apiBase });
+    saveConfig({ tenantId: data.tenant_id, orgId: resolvedOrg, apiBase: cfg.apiBase });
     localStorage.setItem("epayroll_user_email", data.email || form.email.value.trim());
     localStorage.setItem(ORG_CACHE_KEY, JSON.stringify(orgs));
     clearPayrollSessionState();
     refreshOrgSwitcher();
+    refreshSessionAccess();
     document.getElementById("login-modal").classList.add("hidden");
     checkHealth();
     navigate("dashboard");
@@ -3343,10 +3900,12 @@
     bindLogin();
     initSidebar();
     initOrgSwitcher();
+    document.getElementById("btn-header-logout")?.addEventListener("click", doLogout);
     document.querySelectorAll("[data-page]").forEach((btn) => {
       btn.onclick = () => navigate(btn.dataset.page);
     });
     checkHealth();
+    await refreshSessionAccess();
     if (!getConfig().orgId) {
       document.getElementById("login-modal")?.classList.remove("hidden");
     }

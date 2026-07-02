@@ -5,6 +5,8 @@ import re
 from epayroll.auth.context import AuthContext
 from epayroll.auth.guard import TenantAccessError
 
+_ORG_ID = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+
 ROLE_RULES: tuple[tuple[re.Pattern[str], frozenset[str], frozenset[str]], ...] = (
     (
         re.compile(r"^/api/v1/payroll/periods/[^/]+/close$"),
@@ -25,6 +27,21 @@ ROLE_RULES: tuple[tuple[re.Pattern[str], frozenset[str], frozenset[str]], ...] =
         re.compile(r"^/api/v1/me/organizations$"),
         frozenset({"POST"}),
         frozenset({"tenant_admin", "admin", "payroll_admin"}),
+    ),
+    (
+        re.compile(rf"^/api/v1/organizations/{_ORG_ID}$"),
+        frozenset({"PATCH"}),
+        frozenset({"tenant_admin", "admin", "payroll_admin"}),
+    ),
+    (
+        re.compile(rf"^/api/v1/organizations/{_ORG_ID}$"),
+        frozenset({"DELETE"}),
+        frozenset({"tenant_admin", "admin"}),
+    ),
+    (
+        re.compile(r"^/api/v1/users"),
+        frozenset({"GET", "POST", "PATCH", "DELETE"}),
+        frozenset({"tenant_admin", "admin"}),
     ),
     (
         re.compile(r"^/api/v1/vacation/requests/[^/]+/approve$"),

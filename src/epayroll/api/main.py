@@ -35,6 +35,7 @@ from epayroll.api.schemas import (
     AttendanceGridSaveRequest,
     AttendanceFactsImportRequest,
     AttendancePeriodProcessRequest,
+    AttendancePeriodOvertimeSaveRequest,
     DecimoRunCreate,
     PeriodCloseRequest,
     PayrollPeriodRunRequest,
@@ -66,7 +67,20 @@ from epayroll.api.schemas import (
     OrganizationCreate,
     OrganizationResponse,
     OrganizationSummary,
+    OrganizationUpdate,
     PayrollAdjustmentUpdate,
+    RoleOption,
+    UserCreate,
+    UserMembershipResponse,
+    UserResponse,
+    UserUpdate,
+)
+from epayroll.auth.users import (
+    ASSIGNABLE_ROLES,
+    ROLE_LABELS,
+    can_manage_users,
+    can_modify_user,
+    is_protected_superuser,
 )
 from epayroll.db.analytics_repository import AnalyticsRepository
 from epayroll.db.attendance_repository import AttendanceRepository
@@ -174,6 +188,8 @@ def _org_summary(row: dict[str, Any]) -> OrganizationSummary:
         razon_social=row["razon_social"],
         ruc=row.get("ruc"),
         periodo_pago=row.get("periodo_pago") or "QUINCENAL",
+        moneda=row.get("moneda") or "PAB",
+        zona_horaria=row.get("zona_horaria") or "America/Panama",
     )
 
 
@@ -185,7 +201,139 @@ def _org_response(row: dict[str, Any]) -> OrganizationResponse:
         ruc=row.get("ruc"),
         activo=bool(row.get("activo", True)),
         periodo_pago=row.get("periodo_pago") or "QUINCENAL",
+        moneda=row.get("moneda") or "PAB",
+        zona_horaria=row.get("zona_horaria") or "America/Panama",
     )
+
+
+def _user_response(row: dict[str, Any]) -> UserResponse:
+    memberships = [
+        UserMembershipResponse(
+            organization_id=m["organization_id"],
+            razon_social=m["razon_social"],
+            roles=list(m.get("roles") or []),
+            activo=bool(m.get("activo", True)),
+        )
+        for m in row.get("memberships") or []
+        if m.get("activo", True)
+    ]
+    email = str(row.get("email") or "")
+    return UserResponse(
+        id=row["id"],
+        tenant_id=row["tenant_id"],
+        email=email,
+        nombres=row.get("nombres"),
+        activo=bool(row.get("activo", True)),
+        is_superuser=bool(row.get("is_superuser")),
+        protected=is_protected_superuser(email),
+        memberships=memberships,
+    )
+
+
+def _require_user_manager(request: Request):
+    ctx = get_auth_context(request)
+    if not ctx.authenticated or not ctx.tenant_id or ctx.tenant_id == "*":
+        raise HTTPException(status_code=401, detail="Autenticación requerida")
+    if not can_manage_users(ctx):
+        raise HTTPException(status_code=403, detail="Rol insuficiente para administrar usuarios")
+    return ctx
+
+
+@app.get("/api/v1/users/roles", response_model=list[RoleOption])
+def list_user_roles(request: Request) -> list[RoleOption]:
+    _require_user_manager(request)
+    return [RoleOption(id=role, label=ROLE_LABELS.get(role, role)) for role in ASSIGNABLE_ROLES]
+
+
+@app.get("/api/v1/users", response_model=list[UserResponse])
+def list_users(request: Request) -> list[UserResponse]:
+    ctx = _require_user_manager(request)
+    try:
+        rows = user_repo.list_by_tenant(ctx.tenant_id)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Base de datos no disponible: {e}") from e
+    return [_user_response(r) for r in rows]
+
+
+@app.post("/api/v1/users", response_model=UserResponse, status_code=201)
+def create_user(request: Request, body: UserCreate) -> UserResponse:
+    ctx = _require_user_manager(request)
+    if body.is_superuser and not ctx.is_superuser:
+        raise HTTPException(status_code=403, detail="Solo el superusuario puede crear otros superusuarios")
+    if is_protected_superuser(body.email):
+        raise HTTPException(status_code=409, detail="Ese correo está reservado para el superusuario del sistema")
+    if not body.memberships and not body.is_superuser:
+        raise HTTPException(status_code=400, detail="Asigne al menos una empresa al usuario")
+    try:
+        row = user_repo.create(
+            ctx.tenant_id,
+            body.email,
+            body.password,
+            body.nombres,
+            is_superuser=body.is_superuser,
+            memberships=[m.model_dump() for m in body.memberships],
+        )
+    except Exception as e:
+        detail = str(e)
+        if "app_users_email_key" in detail or "duplicate key" in detail.lower():
+            raise HTTPException(status_code=409, detail="Ya existe un usuario con ese correo") from e
+        raise HTTPException(status_code=400, detail=detail) from e
+    return _user_response(row)
+
+
+@app.get("/api/v1/users/{user_id}", response_model=UserResponse)
+def get_user(user_id: str, request: Request) -> UserResponse:
+    ctx = _require_user_manager(request)
+    row = user_repo.get_by_id(user_id, include_inactive=True)
+    if not row or row["tenant_id"] != ctx.tenant_id:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    row["memberships"] = user_repo.list_memberships(user_id)
+    return _user_response(row)
+
+
+@app.patch("/api/v1/users/{user_id}", response_model=UserResponse)
+def update_user(user_id: str, request: Request, body: UserUpdate) -> UserResponse:
+    ctx = _require_user_manager(request)
+    row = user_repo.get_by_id(user_id, include_inactive=True)
+    if not row or row["tenant_id"] != ctx.tenant_id:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    if not can_modify_user(ctx, row):
+        raise HTTPException(status_code=403, detail="No puede modificar este usuario")
+    if body.is_superuser is True and not ctx.is_superuser:
+        raise HTTPException(status_code=403, detail="Solo el superusuario puede otorgar privilegios de superusuario")
+    if is_protected_superuser(row["email"]):
+        if body.activo is False:
+            raise HTTPException(status_code=403, detail="No se puede desactivar al superusuario del sistema")
+        if body.is_superuser is False:
+            raise HTTPException(status_code=403, detail="No se puede quitar el rol de superusuario a esta cuenta")
+    try:
+        updated = user_repo.update(
+            user_id,
+            nombres=body.nombres,
+            password=body.password,
+            activo=body.activo,
+            is_superuser=True if is_protected_superuser(row["email"]) else body.is_superuser,
+            memberships=[m.model_dump() for m in body.memberships] if body.memberships is not None else None,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return _user_response(updated)
+
+
+@app.delete("/api/v1/users/{user_id}", status_code=204)
+def delete_user(user_id: str, request: Request) -> None:
+    ctx = _require_user_manager(request)
+    row = user_repo.get_by_id(user_id, include_inactive=True)
+    if not row or row["tenant_id"] != ctx.tenant_id:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    if not can_modify_user(ctx, row):
+        raise HTTPException(status_code=403, detail="No puede dar de baja este usuario")
+    if is_protected_superuser(row["email"]):
+        raise HTTPException(status_code=403, detail="No se puede eliminar al superusuario del sistema")
+    try:
+        user_repo.deactivate(user_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @app.get("/api/v1/auth/me")
@@ -207,6 +355,8 @@ def auth_me(request: Request) -> dict[str, object]:
         "user_id": ctx.user_id,
         "email": email,
         "roles": list(ctx.roles),
+        "is_superuser": ctx.is_superuser,
+        "can_manage_users": can_manage_users(ctx),
     }
 
 
@@ -243,6 +393,7 @@ def auth_login(body: LoginRequest) -> LoginResponse:
         user_id=user["id"],
         organization_id=org_id,
         roles=roles,
+        is_superuser=bool(user.get("is_superuser")),
     )
     return LoginResponse(
         access_token=token,
@@ -280,11 +431,59 @@ def create_my_organization(request: Request, body: OrganizationCreate) -> Organi
     if not ctx.has_any_role(frozenset({"tenant_admin", "admin", "payroll_admin"})):
         raise HTTPException(status_code=403, detail="Rol insuficiente para crear organizaciones")
     try:
-        row = organization_repo.create(ctx.tenant_id, body.razon_social, body.ruc)
+        row = organization_repo.create(
+            ctx.tenant_id,
+            body.razon_social,
+            body.ruc,
+            periodo_pago=body.periodo_pago,
+        )
         legal_config_repo.seed_org_defaults(row["id"])
+        if ctx.user_id:
+            roles = list(ctx.roles) if ctx.roles else ["payroll_admin", "tenant_admin"]
+            user_repo.grant_organization_access(ctx.user_id, row["id"], roles)
     except Exception as e:
+        detail = str(e)
+        if "organizations_tenant_id_ruc_key" in detail or "duplicate key" in detail.lower():
+            raise HTTPException(status_code=409, detail="Ya existe una empresa con ese RUC en su tenant") from e
         raise HTTPException(status_code=503, detail=f"No se pudo crear organización: {e}") from e
     return _org_response(row)
+
+
+@app.patch("/api/v1/organizations/{organization_id}", response_model=OrganizationResponse)
+def update_organization(organization_id: str, request: Request, body: OrganizationUpdate) -> OrganizationResponse:
+    """Actualiza datos de empresa y configuración operativa."""
+    ctx = get_auth_context(request)
+    if not ctx.has_any_role(frozenset({"tenant_admin", "admin", "payroll_admin"})):
+        raise HTTPException(status_code=403, detail="Rol insuficiente para editar organizaciones")
+    try:
+        row = organization_repo.update(
+            organization_id,
+            razon_social=body.razon_social,
+            ruc=body.ruc,
+            periodo_pago=body.periodo_pago,
+            moneda=body.moneda,
+            zona_horaria=body.zona_horaria,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except Exception as e:
+        detail = str(e)
+        if "organizations_tenant_id_ruc_key" in detail or "duplicate key" in detail.lower():
+            raise HTTPException(status_code=409, detail="Ya existe una empresa con ese RUC en su tenant") from e
+        raise HTTPException(status_code=400, detail=detail) from e
+    return _org_response(row)
+
+
+@app.delete("/api/v1/organizations/{organization_id}", status_code=204)
+def deactivate_organization(organization_id: str, request: Request) -> None:
+    """Baja lógica de empresa (no elimina datos históricos)."""
+    ctx = get_auth_context(request)
+    if not ctx.has_any_role(frozenset({"tenant_admin", "admin"})):
+        raise HTTPException(status_code=403, detail="Rol insuficiente para dar de baja organizaciones")
+    try:
+        organization_repo.deactivate(organization_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
 
 
 @app.get("/api/v1/organizations/{organization_id}/profile", response_model=OrganizationResponse)
@@ -1391,6 +1590,40 @@ def attendance_period_summary(
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.get("/api/v1/organizations/{org_id}/attendance/overtime-global")
+def list_attendance_overtime_global(
+    org_id: str,
+    fecha_inicio: date,
+    fecha_fin: date,
+) -> dict[str, Any]:
+    """Horas extra capturadas a nivel período (por empleado, no por día)."""
+    try:
+        rows = attendance_facts_repo.list_period_overtime(
+            org_id, fecha_inicio, fecha_fin, database_url=get_database_url()
+        )
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    return {"fecha_inicio": str(fecha_inicio), "fecha_fin": str(fecha_fin), "employees": rows}
+
+
+@app.post("/api/v1/organizations/{org_id}/attendance/overtime-global")
+def save_attendance_overtime_global(
+    org_id: str,
+    body: AttendancePeriodOvertimeSaveRequest,
+) -> dict[str, Any]:
+    try:
+        result = attendance_facts_repo.save_period_overtime(
+            org_id,
+            body.fecha_inicio,
+            body.fecha_fin,
+            [r.model_dump() for r in body.rows],
+            database_url=get_database_url(),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return result
 
 
 @app.post("/api/v1/employees/{employee_id}/schedules")

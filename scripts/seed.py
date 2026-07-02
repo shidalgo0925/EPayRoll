@@ -432,29 +432,32 @@ def seed_demo_users(cur) -> None:
             [org_ets],
             ["payroll_admin", "rrhh", "contador", "tenant_admin"],
             os.environ.get("EPAYROLL_SHIDALGO_PASSWORD", demo_password),
+            True,
         ),
         (
             "admin@easytech.services",
             "Administrador Demo",
             [org_ets],
-            ["payroll_admin", "contador", "tenant_admin"],
+            ["tenant_admin", "payroll_admin", "contador"],
             demo_password,
+            False,
         ),
     ]
-    for email, nombres, org_ids, roles, password in users:
+    for email, nombres, org_ids, roles, password, is_superuser in users:
         pwd_hash = hash_password(password)
         cur.execute(
             """
-            INSERT INTO app_users (tenant_id, email, password_hash, nombres)
-            VALUES (%s::uuid, %s, %s, %s)
+            INSERT INTO app_users (tenant_id, email, password_hash, nombres, is_superuser)
+            VALUES (%s::uuid, %s, %s, %s, %s)
             ON CONFLICT (email) DO UPDATE SET
                 password_hash = EXCLUDED.password_hash,
                 nombres = EXCLUDED.nombres,
+                is_superuser = EXCLUDED.is_superuser,
                 activo = true,
                 updated_at = now()
             RETURNING id
             """,
-            (tenant_id, email, pwd_hash, nombres),
+            (tenant_id, email, pwd_hash, nombres, is_superuser),
         )
         user_id = cur.fetchone()[0]
         for org_id in org_ids:

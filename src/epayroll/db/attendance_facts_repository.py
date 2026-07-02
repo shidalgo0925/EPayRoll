@@ -329,6 +329,160 @@ class AttendanceFactsRepository:
         """Días de la quincena/mes para mostrar en planilla (antes de descuentos)."""
         return Decimal("15") if es_quincena else Decimal("30")
 
+    def _get_global_overtime(
+        self,
+        organization_id: str,
+        employee_id: str,
+        fecha_inicio: date,
+        fecha_fin: date,
+        database_url: str | None = None,
+    ) -> dict[str, Decimal] | None:
+        with get_connection(database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT horas_extra_diurnas, horas_extra_nocturnas, horas_extra_mixta_nocturnas,
+                           horas_domingo, horas_feriado
+                    FROM attendance_period_overtime
+                    WHERE organization_id = %s::uuid
+                      AND employee_id = %s::uuid
+                      AND fecha_inicio = %s
+                      AND fecha_fin = %s
+                      AND activo = true
+                    """,
+                    (organization_id, employee_id, fecha_inicio, fecha_fin),
+                )
+                row = cur.fetchone()
+        if not row:
+            return None
+        return {
+            "horas_extra_diurnas": Decimal(str(row[0])),
+            "horas_extra_nocturnas": Decimal(str(row[1])),
+            "horas_extra_mixta_nocturnas": Decimal(str(row[2])),
+            "horas_domingo": Decimal(str(row[3])),
+            "horas_feriado": Decimal(str(row[4])),
+        }
+
+    def _apply_global_overtime(
+        self,
+        organization_id: str,
+        employee_id: str,
+        fecha_inicio: date,
+        fecha_fin: date,
+        summary: dict[str, Any],
+        database_url: str | None = None,
+    ) -> dict[str, Any]:
+        """Si hay captura global guardada, reemplaza solo las horas extra del resumen."""
+        global_ot = self._get_global_overtime(
+            organization_id, employee_id, fecha_inicio, fecha_fin, database_url=database_url
+        )
+        if not global_ot:
+            return summary
+        summary = dict(summary)
+        as_str = isinstance(summary.get("horas_extra_diurnas"), str)
+        for key, val in global_ot.items():
+            summary[key] = str(val) if as_str else val
+        summary["overtime_source"] = "global"
+        return summary
+
+    def list_period_overtime(
+        self,
+        organization_id: str,
+        fecha_inicio: date,
+        fecha_fin: date,
+        database_url: str | None = None,
+    ) -> list[dict[str, Any]]:
+        with get_connection(database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT e.id, e.cedula, e.nombres, e.apellidos, e.ficha,
+                           COALESCE(o.horas_extra_diurnas, 0),
+                           COALESCE(o.horas_extra_nocturnas, 0),
+                           COALESCE(o.horas_extra_mixta_nocturnas, 0),
+                           COALESCE(o.horas_domingo, 0),
+                           COALESCE(o.horas_feriado, 0),
+                           (o.id IS NOT NULL) AS has_global
+                    FROM employees e
+                    LEFT JOIN attendance_period_overtime o
+                      ON o.employee_id = e.id
+                     AND o.organization_id = e.organization_id
+                     AND o.fecha_inicio = %s
+                     AND o.fecha_fin = %s
+                     AND o.activo = true
+                    WHERE e.organization_id = %s::uuid AND e.activo = true
+                    ORDER BY COALESCE(e.ficha, ''), e.apellidos, e.nombres
+                    """,
+                    (fecha_inicio, fecha_fin, organization_id),
+                )
+                rows = cur.fetchall()
+        return [
+            {
+                "employee_id": str(r[0]),
+                "cedula": r[1],
+                "nombres": r[2],
+                "apellidos": r[3],
+                "ficha": r[4],
+                "horas_extra_diurnas": str(r[5]),
+                "horas_extra_nocturnas": str(r[6]),
+                "horas_extra_mixta_nocturnas": str(r[7]),
+                "horas_domingo": str(r[8]),
+                "horas_feriado": str(r[9]),
+                "has_global": bool(r[10]),
+            }
+            for r in rows
+        ]
+
+    def save_period_overtime(
+        self,
+        organization_id: str,
+        fecha_inicio: date,
+        fecha_fin: date,
+        rows: list[dict[str, Any]],
+        database_url: str | None = None,
+    ) -> dict[str, Any]:
+        saved = 0
+        with get_connection(database_url) as conn:
+            with conn.cursor() as cur:
+                for row in rows:
+                    cur.execute(
+                        """
+                        INSERT INTO attendance_period_overtime (
+                            organization_id, employee_id, fecha_inicio, fecha_fin,
+                            horas_extra_diurnas, horas_extra_nocturnas,
+                            horas_extra_mixta_nocturnas, horas_domingo, horas_feriado
+                        )
+                        SELECT %s::uuid, %s::uuid, %s, %s, %s, %s, %s, %s, %s
+                        FROM employees e
+                        WHERE e.id = %s::uuid AND e.organization_id = %s::uuid AND e.activo = true
+                        ON CONFLICT (employee_id, fecha_inicio, fecha_fin) DO UPDATE SET
+                            horas_extra_diurnas = EXCLUDED.horas_extra_diurnas,
+                            horas_extra_nocturnas = EXCLUDED.horas_extra_nocturnas,
+                            horas_extra_mixta_nocturnas = EXCLUDED.horas_extra_mixta_nocturnas,
+                            horas_domingo = EXCLUDED.horas_domingo,
+                            horas_feriado = EXCLUDED.horas_feriado,
+                            activo = true,
+                            updated_at = now()
+                        RETURNING id
+                        """,
+                        (
+                            organization_id,
+                            row["employee_id"],
+                            fecha_inicio,
+                            fecha_fin,
+                            row.get("horas_extra_diurnas", 0),
+                            row.get("horas_extra_nocturnas", 0),
+                            row.get("horas_extra_mixta_nocturnas", 0),
+                            row.get("horas_domingo", 0),
+                            row.get("horas_feriado", 0),
+                            row["employee_id"],
+                            organization_id,
+                        ),
+                    )
+                    if cur.fetchone():
+                        saved += 1
+        return {"saved": saved, "total": len(rows)}
+
     def summarize_employee_for_payroll(
         self,
         organization_id: str,
@@ -384,7 +538,7 @@ class AttendanceFactsRepository:
         dias_trab = self.compute_payroll_dias_trabajados(
             ausencias, vacaciones, es_quincena=es_quincena
         )
-        return {
+        result = {
             "dias_trabajados": dias_trab,
             "ausencias": ausencias,
             "vacaciones": vacaciones,
@@ -395,6 +549,9 @@ class AttendanceFactsRepository:
             "horas_domingo": summary.horas_domingo,
             "horas_feriado": summary.horas_feriado,
         }
+        return self._apply_global_overtime(
+            organization_id, employee_id, fecha_inicio, fecha_fin, result, database_url=database_url
+        )
 
     def process_period_to_daily(
         self,
@@ -488,22 +645,30 @@ class AttendanceFactsRepository:
                     dias_planilla = self.compute_payroll_dias_trabajados(
                         ausencias, vacaciones, es_quincena=es_quincena_period
                     )
+                    emp_summary = {
+                        "employee_id": emp_id,
+                        "cedula": emp_facts[0]["cedula"],
+                        "nombre": f"{emp_facts[0]['nombres']} {emp_facts[0]['apellidos']}",
+                        "dias_trabajados": str(dias_planilla),
+                        "horas_extra_diurnas": str(summary.horas_extra_diurnas),
+                        "horas_extra_nocturnas": str(summary.horas_extra_nocturnas),
+                        "horas_domingo": str(summary.horas_domingo),
+                        "horas_feriado": str(summary.horas_feriado),
+                        "ausencias": ausencias,
+                        "tardanzas": tardanzas,
+                        "descuento_minutos": descuento_minutos_total,
+                        "incapacidades": sum(1 for f in emp_facts if f["incapacidad"]),
+                        "vacaciones": sum(1 for f in emp_facts if f["vacaciones"]),
+                    }
                     summaries.append(
-                        {
-                            "employee_id": emp_id,
-                            "cedula": emp_facts[0]["cedula"],
-                            "nombre": f"{emp_facts[0]['nombres']} {emp_facts[0]['apellidos']}",
-                            "dias_trabajados": str(dias_planilla),
-                            "horas_extra_diurnas": str(summary.horas_extra_diurnas),
-                            "horas_extra_nocturnas": str(summary.horas_extra_nocturnas),
-                            "horas_domingo": str(summary.horas_domingo),
-                            "horas_feriado": str(summary.horas_feriado),
-                            "ausencias": ausencias,
-                            "tardanzas": tardanzas,
-                            "descuento_minutos": descuento_minutos_total,
-                            "incapacidades": sum(1 for f in emp_facts if f["incapacidad"]),
-                            "vacaciones": sum(1 for f in emp_facts if f["vacaciones"]),
-                        }
+                        self._apply_global_overtime(
+                            organization_id,
+                            emp_id,
+                            fecha_inicio,
+                            fecha_fin,
+                            emp_summary,
+                            database_url=database_url,
+                        )
                     )
 
         return {"validation": validation, "employees": summaries, "employee_count": len(summaries)}
