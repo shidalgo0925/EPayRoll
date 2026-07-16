@@ -32,15 +32,29 @@
     if (apiBase.includes("localhost") && location.hostname !== "localhost" && location.hostname !== "127.0.0.1") {
       return "";
     }
-    // Prefijos de proxy Cursor/Simple Browser: /app/<hash>/… → 405 Method Not Allowed
-    if (/\/app\/[0-9a-f]{20,}\/?/i.test(apiBase) || /^\/app\/[0-9a-f]/i.test(apiBase)) {
+    // Prefijos de proxy Cursor/Simple Browser (con o sin /app/).
+    if (/\/app\/[0-9a-f]{16,}/i.test(apiBase) || /^[0-9a-f]{32,}$/i.test(apiBase)) {
       return "";
     }
-    // Base relativa bajo /app (SPA) rompe /api/v1 — forzar origen del sitio.
-    if (apiBase.startsWith("/app")) {
+    // Solo se permiten orígenes absolutos http(s). Relativos bajo /app rompen /api/v1.
+    if (!/^https?:\/\//i.test(apiBase)) {
       return "";
     }
-    return apiBase.replace(/\/$/, "");
+    try {
+      const u = new URL(apiBase);
+      if (/\/app\/[0-9a-f]{16,}/i.test(u.pathname)) return "";
+      // Misma página: base vacía = mismo origen (evita bases raras).
+      if (u.origin === location.origin) return "";
+      return u.origin;
+    } catch {
+      return "";
+    }
+  }
+
+  function resolveApiUrl(path) {
+    const base = getConfig().apiBase.replace(/\/$/, "");
+    const p = path.startsWith("/") ? path : `/${path}`;
+    return base ? `${base}${p}` : p;
   }
 
   function getConfig() {
@@ -234,8 +248,7 @@
 
   async function api(path, options = {}) {
     const cfg = getConfig();
-    const base = cfg.apiBase.replace(/\/$/, "");
-    const url = `${base}${path}`;
+    const url = resolveApiUrl(path);
     const token = getJwt();
     const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
     if (token) {
@@ -271,8 +284,7 @@
 
   async function apiDownload(path, filename) {
     const cfg = getConfig();
-    const base = cfg.apiBase.replace(/\/$/, "");
-    const url = `${base}${path}`;
+    const url = resolveApiUrl(path);
     const token = getJwt();
     const headers = {};
     if (token) {
@@ -333,9 +345,7 @@
   }
 
   async function exchangeSsoCode(code, redirectUri) {
-    const cfg = getConfig();
-    const base = cfg.apiBase.replace(/\/$/, "");
-    const res = await fetch(`${base}/api/v1/auth/sso/exchange`, {
+    const res = await fetch(resolveApiUrl("/api/v1/auth/sso/exchange"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ code, redirect_uri: redirectUri }),
@@ -3993,8 +4003,7 @@
 
   async function authenticateLoginForm(form, organizationId = null) {
     const cfg = getConfig();
-    const base = cfg.apiBase.replace(/\/$/, "");
-    const res = await fetch(`${base}/api/v1/auth/login`, {
+    const res = await fetch(resolveApiUrl("/api/v1/auth/login"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
