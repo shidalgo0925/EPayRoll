@@ -1363,8 +1363,11 @@
         syncPlanillaExportButtons();
         showBatchResults(r);
         const summary = `${r.employee_count} empleado(s) · neto ${fmtMoney(r.totales?.neto)}`;
-        finishPayrollProgress(true, summary);
-        out(`✅ Corrida batch — ${summary}`);
+        const skipNote = r.skipped_count
+          ? ` · omitidos ${r.skipped_count} sin contrato (${(r.skipped || []).map((s) => s.nombre || s.employee_id).join(", ")})`
+          : "";
+        finishPayrollProgress(true, summary + skipNote);
+        out(`✅ Corrida batch — ${summary}${skipNote}`);
         setPayrollProgress(100, "Cargando verificación planilla…", summary);
         await loadPlanillaView(payrollState.runId, container);
       } catch (e) {

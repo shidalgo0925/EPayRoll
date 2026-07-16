@@ -173,21 +173,42 @@ class PayrollService:
                 )
 
         inputs: list[tuple[str, PayrollInput]] = []
+        skipped: list[dict[str, str]] = []
         for emp_id in targets:
-            inputs.append(
-                (
-                    emp_id,
-                    self.build_payroll_input(
-                        emp_id, payroll_period_id, overrides=overrides, use_attendance=use_attendance
-                    ),
+            try:
+                inp = self.build_payroll_input(
+                    emp_id, payroll_period_id, overrides=overrides, use_attendance=use_attendance
                 )
+            except ValueError as e:
+                msg = str(e)
+                if "sin contrato activo" in msg.lower():
+                    emp = self.employees_repo.get_by_id(emp_id)
+                    skipped.append(
+                        {
+                            "employee_id": emp_id,
+                            "nombre": f"{emp.nombres} {emp.apellidos}".strip() if emp else emp_id,
+                            "reason": "sin_contrato_activo",
+                        }
+                    )
+                    continue
+                raise
+            inputs.append((emp_id, inp))
+
+        if not inputs:
+            raise ValueError(
+                "Ningún empleado con contrato activo para procesar"
+                + (f" ({len(skipped)} omitido(s))" if skipped else "")
             )
 
-        return self.payroll_repo.run_batch(
+        result = self.payroll_repo.run_batch(
             payroll_period_id=payroll_period_id,
             employees=inputs,
             record_decimo_accumulation=period["tipo"] != "DECIMO",
         )
+        if skipped:
+            result["skipped"] = skipped
+            result["skipped_count"] = len(skipped)
+        return result
 
     def run_decimo(
         self,

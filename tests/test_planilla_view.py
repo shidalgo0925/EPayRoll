@@ -17,6 +17,41 @@ def planilla_client(monkeypatch):
     return TestClient(app)
 
 
+def test_payroll_run_skips_employee_without_contract(planilla_client):
+    import uuid
+
+    org = "00000000-0000-0000-0000-000000000010"
+    setup = planilla_client.get("/api/v1/demo/setup")
+    assert setup.status_code == 200
+    data = setup.json()
+    period_id = data.get("payroll_period_id")
+    if not period_id:
+        periods = planilla_client.get(f"/api/v1/organizations/{org}/payroll-periods")
+        period_id = periods.json()[0]["id"]
+
+    orphan = planilla_client.post(
+        f"/api/v1/organizations/{org}/employees",
+        json={
+            "cedula": f"SKIP-{uuid.uuid4().hex[:8]}",
+            "nombres": "Sin",
+            "apellidos": "Contrato",
+            "ficha": "SKIP",
+        },
+    )
+    assert orphan.status_code == 200, orphan.text
+    orphan_id = orphan.json()["id"]
+
+    run = planilla_client.post(
+        f"/api/v1/payroll/periods/{period_id}/run",
+        json={"use_attendance": False, "dias_trabajados": 15, "employee_ids": [orphan_id, data["employee_id"]]},
+    )
+    assert run.status_code == 200, run.text
+    body = run.json()
+    assert body.get("skipped_count", 0) >= 1
+    assert any(s["employee_id"] == orphan_id for s in body.get("skipped", []))
+    planilla_client.delete(f"/api/v1/employees/{orphan_id}")
+
+
 def test_planilla_view_after_run(planilla_client):
     setup = planilla_client.get("/api/v1/demo/setup")
     assert setup.status_code == 200
