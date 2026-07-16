@@ -25,11 +25,29 @@
     settings: "Configuración",
   };
 
-  function getConfig() {
-    let apiBase = localStorage.getItem("epayroll_api_base") || "";
+  function sanitizeApiBase(raw) {
+    let apiBase = (raw || "").trim();
+    if (!apiBase) return "";
+    // Host real no debe usar localhost guardado en Configuración.
     if (apiBase.includes("localhost") && location.hostname !== "localhost" && location.hostname !== "127.0.0.1") {
-      apiBase = "";
-      localStorage.setItem("epayroll_api_base", "");
+      return "";
+    }
+    // Prefijos de proxy Cursor/Simple Browser: /app/<hash>/… → 405 Method Not Allowed
+    if (/\/app\/[0-9a-f]{20,}\/?/i.test(apiBase) || /^\/app\/[0-9a-f]/i.test(apiBase)) {
+      return "";
+    }
+    // Base relativa bajo /app (SPA) rompe /api/v1 — forzar origen del sitio.
+    if (apiBase.startsWith("/app")) {
+      return "";
+    }
+    return apiBase.replace(/\/$/, "");
+  }
+
+  function getConfig() {
+    let apiBase = sanitizeApiBase(localStorage.getItem("epayroll_api_base") || "");
+    const stored = (localStorage.getItem("epayroll_api_base") || "").trim();
+    if (stored && stored !== apiBase) {
+      localStorage.setItem("epayroll_api_base", apiBase);
     }
     return {
       tenantId: localStorage.getItem("epayroll_tenant_id") || "",
@@ -185,7 +203,7 @@
   function saveConfig({ tenantId, orgId, apiBase }) {
     if (tenantId != null) localStorage.setItem("epayroll_tenant_id", tenantId);
     if (orgId != null) localStorage.setItem("epayroll_org_id", orgId);
-    if (apiBase != null) localStorage.setItem("epayroll_api_base", apiBase);
+    if (apiBase != null) localStorage.setItem("epayroll_api_base", sanitizeApiBase(apiBase));
   }
 
   function getJwt() {
