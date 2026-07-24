@@ -198,6 +198,7 @@ storage/           # payslips/, exports/ (gitignored)
 | ~~**P1**~~ | ~~Tasas legales por org en motor~~ | 2 | ✅ `organization_legal_rates` + reglas variables |
 | **P2** | Planilla honorarios (sin nómina CSS) | 4 | ❌ |
 | **P2** | SIPE portal CSS | 6 | Prueba en ambiente CSS |
+| **P1** | **Licencia + vencimiento JWT** | Auth | Hoy JWT sin `exp` (prueba). Al activar/vencer licencia: TTL sesión + gate. Ver [ROADMAP §0](./EPAYROLL_ROADMAP.md) |
 
 ---
 
@@ -263,6 +264,7 @@ Ver `.env.example` en la raíz del repo.
 | 2026-06-13 | Sustituciones vacaciones + push Odoo API. 70 tests pass. |
 | 2026-06-21 | Descuentos tardanza en asistencia/planilla, beneficios, liquidación PDF, reset demo. Ver [ANALISTA_CONTEXTO.md](./ANALISTA_CONTEXTO.md). |
 | 2026-06-21 | Planilla operador: vista 26 cols, config legal por org, ficha/teléfono. Export Excel/PDF planilla. |
+| 2026-07-23 | JWT local sin vencimiento en prueba (`EPAYROLL_JWT_EXPIRES_HOURS=0`). Roadmap: habilitar expiración al activar/vencer licencia. |
 
 ---
 

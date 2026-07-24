@@ -1,21 +1,37 @@
 # EPAYROLL_ROADMAP.md
 
-**Versión:** 1.1  
-**Estado:** MVP backend completo — piloto en apps srv pendiente  
+**Versión:** 1.2  
+**Estado:** MVP backend + UI en producción (prueba operativa)  
 **Padre:** [EPAYROLL_MASTER_PLAN.md](./EPAYROLL_MASTER_PLAN.md)  
 **Propósito:** Fases, sprints, entregables y dependencias  
 **Continuación:** [EPAYROLL_STATUS.md](./EPAYROLL_STATUS.md) ← **leer al retomar**
 
 ---
 
-## 0. ESTADO ACTUAL (2026-06-13)
+## 0. ESTADO ACTUAL (2026-07-23)
 
 | | |
 |---|---|
-| **Hecho** | Fases 0–8 en código + UI `/app` + piloto apps srv |
-| **Tests** | 75 passed (+ 1 skipped BD) |
-| **Siguiente** | UI liquidaciones · operación multi-empleado · SIPE portal CSS |
+| **Hecho** | Fases 0–8 en código + UI `/app` + piloto apps srv + multi-empresa |
+| **Producción** | https://eplanilla.etsrv.site/app/ |
+| **Siguiente operativo** | Validación planilla / SIPE · licencia comercial |
 | **Al final** | **Fase 0 cierre** — validación y firma contador (`scripts/golden_report.py`) |
+
+### Decisión de producto — sesión JWT vs licencia (2026-07-23)
+
+| Etapa | Comportamiento | Config |
+|-------|----------------|--------|
+| **Ahora (prueba)** | JWT local **sin vencimiento** — no interrumpe operación diaria | `EPAYROLL_JWT_EXPIRES_HOURS=0` |
+| **Cuando se active / venza la licencia** | **Habilitar vencimiento de sesión** (TTL + refresh o bloqueo por licencia) | `EPAYROLL_JWT_EXPIRES_HOURS` > 0 y/o gate de licencia |
+
+**Pendiente explícito (post-licencia):**
+
+- [ ] Módulo / flag de **licencia** (vigencia, tenant, gracia)
+- [ ] Al **activar o vencer licencia**: exigir JWT con `exp` (p. ej. 8–24 h) + refresh deslizante
+- [ ] UI: mensaje claro “licencia vencida / sesión expirada — contacte soporte”
+- [ ] Documentar en `.env.example` el cambio de `0` → TTL productivo
+
+> **No olvidar:** hoy `0` es deliberado para prueba. No dejar TTL infinito en clientes con licencia pagada.
 
 ---
 
