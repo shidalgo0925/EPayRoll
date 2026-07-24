@@ -32,11 +32,12 @@ class AuthSettings:
 
 @lru_cache
 def get_auth_settings() -> AuthSettings:
-    expires_raw = os.environ.get("EPAYROLL_JWT_EXPIRES_HOURS", "24").strip()
+    # 0 = sin vencimiento (JWT local sin claim exp). Máx. 8760h (~1 año) si se usa TTL.
+    expires_raw = os.environ.get("EPAYROLL_JWT_EXPIRES_HOURS", "0").strip()
     try:
-        expires_hours = max(1, min(int(expires_raw), 168))  # 1h … 7 días
+        expires_hours = max(0, min(int(expires_raw), 8760))
     except ValueError:
-        expires_hours = 24
+        expires_hours = 0
     return AuthSettings(
         mode=os.environ.get("EPAYROLL_AUTH_MODE", "stub").strip().lower(),
         jwt_secret=os.environ.get("EPAYROLL_JWT_SECRET", "dev-change-me"),

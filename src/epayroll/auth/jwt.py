@@ -28,7 +28,8 @@ def decode_jwt(token: str, settings: AuthSettings) -> AuthContext:
     except ImportError as e:
         raise AuthError("PyJWT no instalado — pip install PyJWT") from e
 
-    options: dict[str, bool] = {"require": ["exp", "sub", "tenant_id"]}
+    # exp opcional: tokens locales pueden emitirse sin vencimiento.
+    options: dict[str, bool] = {"require": ["sub", "tenant_id"], "verify_exp": True}
     decode_kwargs: dict[str, Any] = {
         "algorithms": [settings.jwt_algorithm],
         "options": options,
@@ -83,13 +84,15 @@ def encode_jwt(
     from epayroll.auth.settings import get_auth_settings
 
     settings = settings or get_auth_settings()
-    hours = expires_hours if expires_hours is not None else settings.jwt_expires_hours
+    hours = settings.jwt_expires_hours if expires_hours is None else expires_hours
 
     payload: dict[str, Any] = {
         "sub": user_id,
         "tenant_id": tenant_id,
-        "exp": datetime.now(tz=UTC) + timedelta(hours=hours),
     }
+    # hours <= 0 → sin claim exp (no vence).
+    if hours and hours > 0:
+        payload["exp"] = datetime.now(tz=UTC) + timedelta(hours=hours)
     if organization_id:
         payload["organization_id"] = organization_id
     if roles:

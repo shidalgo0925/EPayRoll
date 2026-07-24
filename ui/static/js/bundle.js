@@ -227,8 +227,13 @@
   function setJwt(token, expiresInHours) {
     if (token) {
       localStorage.setItem("epayroll_jwt", token);
-      const hours = Number(expiresInHours) > 0 ? Number(expiresInHours) : 24;
-      localStorage.setItem("epayroll_jwt_exp", String(Date.now() + hours * 3600 * 1000));
+      const hours = Number(expiresInHours);
+      if (Number.isFinite(hours) && hours > 0) {
+        localStorage.setItem("epayroll_jwt_exp", String(Date.now() + hours * 3600 * 1000));
+      } else {
+        // 0 / ausente = sin vencimiento
+        localStorage.removeItem("epayroll_jwt_exp");
+      }
     } else {
       localStorage.removeItem("epayroll_jwt");
       localStorage.removeItem("epayroll_jwt_exp");
@@ -257,7 +262,7 @@
         if (!res.ok) return false;
         const data = await res.json();
         if (!data.access_token) return false;
-        setJwt(data.access_token, data.expires_in_hours || 24);
+        setJwt(data.access_token, data.expires_in_hours ?? 0);
         return true;
       } catch {
         return false;
@@ -270,12 +275,14 @@
 
   function scheduleJwtRefresh() {
     if (jwtRefreshTimer) clearInterval(jwtRefreshTimer);
+    // Sin vencimiento (sin epayroll_jwt_exp) no hace falta renovar.
+    if (!getJwtExpMs()) return;
     jwtRefreshTimer = setInterval(async () => {
       if (!getJwt()) return;
       const exp = getJwtExpMs();
+      if (!exp) return;
       const msLeft = exp - Date.now();
-      // Renueva si faltan menos de 4 horas (sesión deslizante).
-      if (exp && msLeft < 4 * 3600 * 1000) {
+      if (msLeft < 4 * 3600 * 1000) {
         await refreshLocalJwt();
       }
     }, 15 * 60 * 1000);
@@ -422,7 +429,13 @@
   }
 
   function storeTokens(data) {
-    setJwt(data.access_token, data.expires_in_hours || (data.expires_in ? data.expires_in / 3600 : 24));
+    const hours =
+      data.expires_in_hours != null
+        ? data.expires_in_hours
+        : data.expires_in
+          ? data.expires_in / 3600
+          : 0;
+    setJwt(data.access_token, hours);
     if (data.refresh_token) setRefreshToken(data.refresh_token);
     scheduleJwtRefresh();
   }
@@ -4059,7 +4072,7 @@
 
   function finishLogin(data, cfg, orgId, orgs, form) {
     const resolvedOrg = orgs.some((o) => o.id === orgId) ? orgId : pickDefaultOrganization(orgs);
-    setJwt(data.access_token, data.expires_in_hours || 24);
+    setJwt(data.access_token, data.expires_in_hours ?? 0);
     scheduleJwtRefresh();
     saveConfig({ tenantId: data.tenant_id, orgId: resolvedOrg, apiBase: cfg.apiBase });
     localStorage.setItem("epayroll_user_email", data.email || form.email.value.trim());
@@ -4123,7 +4136,7 @@
         return;
       }
       if (orgs.length > 1) {
-        setJwt(data.access_token, data.expires_in_hours || 24);
+        setJwt(data.access_token, data.expires_in_hours ?? 0);
         scheduleJwtRefresh();
         saveConfig({ tenantId: data.tenant_id, apiBase: cfg.apiBase });
         localStorage.setItem("epayroll_user_email", data.email || form.email.value.trim());
