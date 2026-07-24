@@ -55,3 +55,34 @@ def test_login_returns_jwt(login_client):
     )
     assert me.status_code == 200
     assert me.json()["email"] == "admin@easytech.services"
+    assert data.get("expires_in_hours", 0) >= 1
+
+
+def test_auth_refresh_slides_session(login_client):
+    r = login_client.post(
+        "/api/v1/auth/login",
+        json={
+            "email": "admin@easytech.services",
+            "password": DEMO_PASSWORD,
+            "organization_id": DEMO_ORG,
+        },
+    )
+    if r.status_code == 503:
+        pytest.skip("BD no disponible")
+    assert r.status_code == 200
+    token = r.json()["access_token"]
+
+    refreshed = login_client.post(
+        "/api/v1/auth/refresh",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert refreshed.status_code == 200, refreshed.text
+    body = refreshed.json()
+    assert body["access_token"]
+    assert body["expires_in_hours"] >= 1
+
+    me = login_client.get(
+        "/api/v1/auth/me",
+        headers={"Authorization": f"Bearer {body['access_token']}"},
+    )
+    assert me.status_code == 200

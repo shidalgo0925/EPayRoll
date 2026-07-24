@@ -56,6 +56,7 @@ from epayroll.api.schemas import (
     EmployeeResponse,
     LoginRequest,
     LoginResponse,
+    TokenRefreshResponse,
     SsoConfigResponse,
     SsoExchangeRequest,
     SsoRefreshRequest,
@@ -390,12 +391,16 @@ def auth_login(body: LoginRequest) -> LoginResponse:
         org_id = org_rows[0]["id"]
         roles = list(org_rows[0].get("roles") or ["payroll_admin"])
 
+    from epayroll.auth.settings import get_auth_settings
+
+    hours = get_auth_settings().jwt_expires_hours
     token = encode_jwt(
         tenant_id=user["tenant_id"],
         user_id=user["id"],
         organization_id=org_id,
         roles=roles,
         is_superuser=bool(user.get("is_superuser")),
+        expires_hours=hours,
     )
     return LoginResponse(
         access_token=token,
@@ -404,8 +409,29 @@ def auth_login(body: LoginRequest) -> LoginResponse:
         organization_id=org_id,
         user_id=user["id"],
         email=user["email"],
+        expires_in_hours=hours,
         organizations=[_org_summary(r) for r in org_rows],
     )
+
+
+@app.post("/api/v1/auth/refresh", response_model=TokenRefreshResponse)
+def auth_refresh(request: Request) -> TokenRefreshResponse:
+    """Renueva JWT local (sesión deslizante) mientras el token actual siga válido."""
+    ctx = get_auth_context(request)
+    if not ctx.authenticated or not ctx.user_id or ctx.tenant_id in ("", "*"):
+        raise HTTPException(status_code=401, detail="Sesión inválida o expirada — vuelva a iniciar sesión")
+    from epayroll.auth.settings import get_auth_settings
+
+    hours = get_auth_settings().jwt_expires_hours
+    token = encode_jwt(
+        tenant_id=ctx.tenant_id,
+        user_id=ctx.user_id,
+        organization_id=ctx.organization_id,
+        roles=list(ctx.roles),
+        is_superuser=ctx.is_superuser,
+        expires_hours=hours,
+    )
+    return TokenRefreshResponse(access_token=token, expires_in_hours=hours)
 
 
 @app.get("/api/v1/me/organizations", response_model=list[OrganizationSummary])

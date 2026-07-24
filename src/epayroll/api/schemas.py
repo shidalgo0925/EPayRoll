@@ -21,8 +21,14 @@ class LoginResponse(BaseModel):
     organization_id: str | None = None
     user_id: str
     email: str
-    expires_in_hours: int = 8
+    expires_in_hours: int = 24
     organizations: list["OrganizationSummary"] = Field(default_factory=list)
+
+
+class TokenRefreshResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in_hours: int = 24
 
 
 class OrganizationSummary(BaseModel):

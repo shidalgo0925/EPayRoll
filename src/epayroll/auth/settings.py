@@ -12,6 +12,7 @@ class AuthSettings:
     jwt_algorithm: str
     jwt_audience: str | None
     jwt_issuer: str | None
+    jwt_expires_hours: int
     en1_jwks_url: str | None
     en1_authorize_url: str | None
     en1_token_url: str | None
@@ -31,12 +32,18 @@ class AuthSettings:
 
 @lru_cache
 def get_auth_settings() -> AuthSettings:
+    expires_raw = os.environ.get("EPAYROLL_JWT_EXPIRES_HOURS", "24").strip()
+    try:
+        expires_hours = max(1, min(int(expires_raw), 168))  # 1h … 7 días
+    except ValueError:
+        expires_hours = 24
     return AuthSettings(
         mode=os.environ.get("EPAYROLL_AUTH_MODE", "stub").strip().lower(),
         jwt_secret=os.environ.get("EPAYROLL_JWT_SECRET", "dev-change-me"),
         jwt_algorithm=os.environ.get("EPAYROLL_JWT_ALGORITHM", "HS256"),
         jwt_audience=os.environ.get("EPAYROLL_JWT_AUDIENCE") or None,
         jwt_issuer=os.environ.get("EPAYROLL_JWT_ISSUER") or None,
+        jwt_expires_hours=expires_hours,
         en1_jwks_url=os.environ.get("EPAYROLL_EN1_JWKS_URL") or None,
         en1_authorize_url=os.environ.get("EPAYROLL_EN1_AUTHORIZE_URL") or None,
         en1_token_url=os.environ.get("EPAYROLL_EN1_TOKEN_URL") or None,

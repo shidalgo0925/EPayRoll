@@ -224,9 +224,61 @@
     return localStorage.getItem("epayroll_jwt") || "";
   }
 
-  function setJwt(token) {
-    if (token) localStorage.setItem("epayroll_jwt", token);
-    else localStorage.removeItem("epayroll_jwt");
+  function setJwt(token, expiresInHours) {
+    if (token) {
+      localStorage.setItem("epayroll_jwt", token);
+      const hours = Number(expiresInHours) > 0 ? Number(expiresInHours) : 24;
+      localStorage.setItem("epayroll_jwt_exp", String(Date.now() + hours * 3600 * 1000));
+    } else {
+      localStorage.removeItem("epayroll_jwt");
+      localStorage.removeItem("epayroll_jwt_exp");
+    }
+  }
+
+  function getJwtExpMs() {
+    const raw = localStorage.getItem("epayroll_jwt_exp");
+    const n = raw ? Number(raw) : 0;
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  let jwtRefreshInFlight = null;
+  let jwtRefreshTimer = null;
+
+  async function refreshLocalJwt() {
+    const token = getJwt();
+    if (!token) return false;
+    if (jwtRefreshInFlight) return jwtRefreshInFlight;
+    jwtRefreshInFlight = (async () => {
+      try {
+        const res = await fetch(resolveApiUrl("/api/v1/auth/refresh"), {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        });
+        if (!res.ok) return false;
+        const data = await res.json();
+        if (!data.access_token) return false;
+        setJwt(data.access_token, data.expires_in_hours || 24);
+        return true;
+      } catch {
+        return false;
+      } finally {
+        jwtRefreshInFlight = null;
+      }
+    })();
+    return jwtRefreshInFlight;
+  }
+
+  function scheduleJwtRefresh() {
+    if (jwtRefreshTimer) clearInterval(jwtRefreshTimer);
+    jwtRefreshTimer = setInterval(async () => {
+      if (!getJwt()) return;
+      const exp = getJwtExpMs();
+      const msLeft = exp - Date.now();
+      // Renueva si faltan menos de 4 horas (sesión deslizante).
+      if (exp && msLeft < 4 * 3600 * 1000) {
+        await refreshLocalJwt();
+      }
+    }, 15 * 60 * 1000);
   }
 
   function formatApiError(data, status) {
@@ -249,36 +301,50 @@
   async function api(path, options = {}) {
     const cfg = getConfig();
     const url = resolveApiUrl(path);
-    const token = getJwt();
-    const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
-    } else {
-      headers["X-Tenant-Id"] = cfg.tenantId;
-      if (cfg.orgId) headers["X-Organization-Id"] = cfg.orgId;
-      headers["X-Roles"] = "payroll_admin,rrhh,contador";
-    }
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-    try {
-      const res = await fetch(url, { ...options, signal: controller.signal, headers });
-      const text = await res.text();
-      let data;
+    const doFetch = async (token) => {
+      const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      } else {
+        headers["X-Tenant-Id"] = cfg.tenantId;
+        if (cfg.orgId) headers["X-Organization-Id"] = cfg.orgId;
+        headers["X-Roles"] = "payroll_admin,rrhh,contador";
+      }
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
       try {
-        data = text ? JSON.parse(text) : null;
-      } catch {
-        data = text;
+        const res = await fetch(url, { ...options, signal: controller.signal, headers });
+        const text = await res.text();
+        let data;
+        try {
+          data = text ? JSON.parse(text) : null;
+        } catch {
+          data = text;
+        }
+        return { res, data };
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+    try {
+      let token = getJwt();
+      let { res, data } = await doFetch(token);
+      if (res.status === 401 && token && !String(path).includes("/auth/")) {
+        const ok = await refreshLocalJwt();
+        if (ok) {
+          ({ res, data } = await doFetch(getJwt()));
+        }
       }
       if (!res.ok) {
-        const msg = formatApiError(data, res.status);
-        throw new Error(msg);
+        if (res.status === 401 && token) {
+          // Sesión ya no renovable
+        }
+        throw new Error(formatApiError(data, res.status));
       }
       return data;
     } catch (e) {
       if (e.name === "AbortError") throw new Error("Tiempo de espera agotado — verifica URL del servidor");
       throw e;
-    } finally {
-      clearTimeout(timer);
     }
   }
 
@@ -356,8 +422,9 @@
   }
 
   function storeTokens(data) {
-    setJwt(data.access_token);
+    setJwt(data.access_token, data.expires_in_hours || (data.expires_in ? data.expires_in / 3600 : 24));
     if (data.refresh_token) setRefreshToken(data.refresh_token);
+    scheduleJwtRefresh();
   }
 
   async function startEn1Sso(ssoCfg) {
@@ -3992,7 +4059,8 @@
 
   function finishLogin(data, cfg, orgId, orgs, form) {
     const resolvedOrg = orgs.some((o) => o.id === orgId) ? orgId : pickDefaultOrganization(orgs);
-    setJwt(data.access_token);
+    setJwt(data.access_token, data.expires_in_hours || 24);
+    scheduleJwtRefresh();
     saveConfig({ tenantId: data.tenant_id, orgId: resolvedOrg, apiBase: cfg.apiBase });
     localStorage.setItem("epayroll_user_email", data.email || form.email.value.trim());
     localStorage.setItem(ORG_CACHE_KEY, JSON.stringify(orgs));
@@ -4055,7 +4123,8 @@
         return;
       }
       if (orgs.length > 1) {
-        setJwt(data.access_token);
+        setJwt(data.access_token, data.expires_in_hours || 24);
+        scheduleJwtRefresh();
         saveConfig({ tenantId: data.tenant_id, apiBase: cfg.apiBase });
         localStorage.setItem("epayroll_user_email", data.email || form.email.value.trim());
         localStorage.setItem(ORG_CACHE_KEY, JSON.stringify(orgs));
@@ -4127,6 +4196,7 @@
     document.querySelectorAll("[data-page]").forEach((btn) => {
       btn.onclick = () => navigate(btn.dataset.page);
     });
+    if (getJwt()) scheduleJwtRefresh();
     checkHealth();
     await refreshSessionAccess();
     if (!getConfig().orgId) {

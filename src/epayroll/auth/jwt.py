@@ -71,7 +71,7 @@ def encode_jwt(
     roles: list[str] | None = None,
     is_superuser: bool = False,
     settings: AuthSettings | None = None,
-    expires_hours: int = 8,
+    expires_hours: int | None = None,
 ) -> str:
     try:
         import jwt
@@ -83,11 +83,12 @@ def encode_jwt(
     from epayroll.auth.settings import get_auth_settings
 
     settings = settings or get_auth_settings()
+    hours = expires_hours if expires_hours is not None else settings.jwt_expires_hours
 
     payload: dict[str, Any] = {
         "sub": user_id,
         "tenant_id": tenant_id,
-        "exp": datetime.now(tz=UTC) + timedelta(hours=expires_hours),
+        "exp": datetime.now(tz=UTC) + timedelta(hours=hours),
     }
     if organization_id:
         payload["organization_id"] = organization_id
