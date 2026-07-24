@@ -199,13 +199,27 @@ Datos en tabla `payroll_run_adjustments`: `descuento_minutos`, `monto_desc_tiemp
 | Sync asistencia | Marca I en fechas del rango |
 | Impacto planilla | `calculate_period_impact` en corrida |
 
-### 6.6 Liquidaciones
+### 6.6 Liquidaciones (Art. 210 CT)
 
 | Función | UI / API |
 |---------|----------|
-| Contexto automático (YTD, vacaciones) | `GET .../termination/context` |
-| Cálculo GT-05/GT-06 | `POST .../termination/calculate` |
+| Catálogo de causas | `GET /api/v1/termination/causes` |
+| Contexto automático (YTD, vacaciones, tipo contrato) | `GET .../termination/context` |
+| Cálculo Art. 210 / GT-05/GT-06 | `POST .../termination/calculate` |
 | PDF liquidación | `GET .../termination/{id}/export.pdf` |
+
+**Causas:** renuncia voluntaria/justificada, despido justificado/injustificado, mutuo acuerdo, vencimiento contrato, fin de obra, muerte trabajador/empleador, suspensión prolongada.
+
+**Reglas legales v3 (validar con analista):**
+- **Prima (Art. 224):** solo si contrato **INDEFINIDO** y la causa lo permite (`genera_prima`).
+- **Indemnización (Art. 225):** régimen **C** (3.4 sem/año ≤10; 1 sem/año adicional) por defecto; régimen **B** histórico disponible.
+- **Salario semanal:** `mensual × 12 ÷ 52` (no ÷ 4).
+- **Suspensión prolongada:** sin indemnización automática; requiere override + fundamento.
+- **Preaviso:** fecha notificación, técnico (60 días) o 15 días, formalizado; incumplimiento = 1 semana.
+
+**Campos clave:** salario pendiente (manual); mutuo acuerdo → indem. acordada + documento; muerte → notas beneficiario.
+
+**Futuro (Art. 226):** promedio remuneraciones últimos 5 años (requiere historial salarial).
 
 ---
 

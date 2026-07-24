@@ -32,6 +32,9 @@ def project_liquidation(
         dias_vacaciones_pendientes=emp.dias_vacaciones_pendientes,
         salarios_acumulados_anio=emp.salarios_acumulados_anio,
         cumplio_preaviso=True,
+        es_indefinido=True,
+        tipo_contrato="INDEFINIDO",
+        regimen_indemnizacion="C",
     )
     result = run_liquidation(inp)
     return {
@@ -40,6 +43,7 @@ def project_liquidation(
         "causa": causa,
         "fecha_corte": fecha_corte.isoformat(),
         "antiguedad_anios": result.config_snapshot.get("antiguedad_anios"),
+        "regimen_indemnizacion": result.config_snapshot.get("regimen_indemnizacion"),
         "vacaciones": str(result.amount("VACACIONES_LIQUIDACION")),
         "decimo": str(result.amount("DECIMO_PROPORCIONAL")),
         "prima": str(result.amount("PRIMA_ANTIGUEDAD")),

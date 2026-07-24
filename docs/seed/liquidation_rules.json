@@ -1,14 +1,152 @@
 {
-  "version": "1.0",
+  "version": "3.0",
   "vigencia_desde": "2026-01-01",
   "vigencia_hasta": null,
-  "referencia_legal": "Arts. 222, 224-226 CT",
+  "referencia_legal": "Art. 210 CT (causas); Arts. 222-226 CT (prestaciones); Ley 44/1995 Art. 225 lit. C",
+  "nota_art226_futuro": "Prima Art. 226: promedio remuneración últimos 5 años — requiere historial salarial (fase futura).",
+  "regimen_indemnizacion_default": "C",
+  "salario_semanal_formula": "mensual * 12 / 52",
   "preaviso_renuncia_dias": 15,
+  "preaviso_tecnico_dias": 60,
+  "preaviso_incumplimiento_semanas": 1,
   "prima_semanas_por_anio": 1,
-  "decimo_proporcional_formula": "salarios_acumulados_anio / 12",
+  "prima_requiere_indefinido": true,
+  "regimenes_indemnizacion": {
+    "B": {
+      "label": "Escala B (histórica)",
+      "min_anios_indemnizacion": 2,
+      "tramos": [
+        { "desde_anios": 0, "hasta_anios": 2, "semanas_por_anio": 0 },
+        { "desde_anios": 2, "hasta_anios": 10, "semanas_por_anio": 3 },
+        { "desde_anios": 10, "hasta_anios": null, "semanas_por_anio": 4 }
+      ]
+    },
+    "C": {
+      "label": "Escala C — Ley 44/1995 (default moderno)",
+      "min_anios_indemnizacion": 0,
+      "semanas_primeros_10": 3.4,
+      "semanas_despues_10": 1
+    }
+  },
   "indemnizacion_escala_b": [
-    { "desde_anios": 0, "hasta_anios": 2, "semanas_por_anio": 0, "nota": "Sin indemnización escala B" },
-    { "desde_anios": 2, "hasta_anios": 10, "semanas_por_anio": 3, "referencia": "Art. 225 CT" },
-    { "desde_anios": 10, "hasta_anios": null, "semanas_por_anio": 4, "referencia": "Art. 225 CT tramo superior" }
+    { "desde_anios": 0, "hasta_anios": 2, "semanas_por_anio": 0, "nota": "Legacy — usar regimenes_indemnizacion.B" },
+    { "desde_anios": 2, "hasta_anios": 10, "semanas_por_anio": 3, "referencia": "Art. 225 CT escala B" },
+    { "desde_anios": 10, "hasta_anios": null, "semanas_por_anio": 4, "referencia": "Art. 225 CT escala B tramo superior" }
+  ],
+  "causas": [
+    {
+      "codigo": "RENUNCIA",
+      "label": "Renuncia voluntaria",
+      "iniciativa": "trabajador",
+      "genera_prima": true,
+      "genera_indemnizacion": false,
+      "indemnizacion_negociable": false,
+      "indemnizacion_condicional": false,
+      "genera_preaviso": true,
+      "requiere_documento": false
+    },
+    {
+      "codigo": "RENUNCIA_JUSTIFICADA",
+      "label": "Renuncia justificada",
+      "iniciativa": "trabajador",
+      "genera_prima": true,
+      "genera_indemnizacion": true,
+      "indemnizacion_negociable": false,
+      "indemnizacion_condicional": false,
+      "genera_preaviso": false,
+      "requiere_documento": false,
+      "referencia": "Arts. 223/225 CT"
+    },
+    {
+      "codigo": "DESPIDO_JUSTIFICADO",
+      "label": "Despido justificado",
+      "iniciativa": "empleador",
+      "genera_prima": true,
+      "genera_indemnizacion": false,
+      "indemnizacion_negociable": false,
+      "indemnizacion_condicional": false,
+      "genera_preaviso": false,
+      "requiere_documento": false,
+      "nota": "Prima sí si contrato indefinido (Art. 224)"
+    },
+    {
+      "codigo": "DESPIDO_INJUSTIFICADO",
+      "label": "Despido injustificado",
+      "iniciativa": "empleador",
+      "genera_prima": true,
+      "genera_indemnizacion": true,
+      "indemnizacion_negociable": false,
+      "indemnizacion_condicional": false,
+      "genera_preaviso": false,
+      "requiere_documento": false
+    },
+    {
+      "codigo": "MUTUO_ACUERDO",
+      "label": "Mutuo acuerdo",
+      "iniciativa": "ambas",
+      "genera_prima": true,
+      "genera_indemnizacion": false,
+      "indemnizacion_negociable": true,
+      "indemnizacion_condicional": false,
+      "genera_preaviso": false,
+      "requiere_documento": true
+    },
+    {
+      "codigo": "VENCIMIENTO_CONTRATO",
+      "label": "Vencimiento de contrato a término",
+      "iniciativa": "automatica",
+      "genera_prima": false,
+      "genera_indemnizacion": false,
+      "indemnizacion_negociable": false,
+      "indemnizacion_condicional": false,
+      "genera_preaviso": false,
+      "requiere_documento": false,
+      "nota": "Art. 224: prima solo indefinido; término fijo no genera prima"
+    },
+    {
+      "codigo": "FIN_OBRA",
+      "label": "Conclusión de obra determinada",
+      "iniciativa": "automatica",
+      "genera_prima": false,
+      "genera_indemnizacion": false,
+      "indemnizacion_negociable": false,
+      "indemnizacion_condicional": false,
+      "genera_preaviso": false,
+      "requiere_documento": false
+    },
+    {
+      "codigo": "MUERTE_TRABAJADOR",
+      "label": "Muerte del trabajador",
+      "iniciativa": "automatica",
+      "genera_prima": true,
+      "genera_indemnizacion": false,
+      "indemnizacion_negociable": false,
+      "indemnizacion_condicional": false,
+      "genera_preaviso": false,
+      "requiere_documento": false
+    },
+    {
+      "codigo": "MUERTE_EMPLEADOR",
+      "label": "Muerte del empleador",
+      "iniciativa": "automatica",
+      "genera_prima": true,
+      "genera_indemnizacion": false,
+      "indemnizacion_negociable": false,
+      "indemnizacion_condicional": false,
+      "genera_preaviso": false,
+      "requiere_documento": false
+    },
+    {
+      "codigo": "SUSPENSION_PROLONGADA",
+      "label": "Prolongación de suspensión del contrato",
+      "iniciativa": "trabajador",
+      "genera_prima": true,
+      "genera_indemnizacion": false,
+      "indemnizacion_negociable": false,
+      "indemnizacion_condicional": true,
+      "genera_preaviso": false,
+      "requiere_documento": false,
+      "nota": "Indemnización solo con override + fundamento (no automática)"
+    }
   ]
 }

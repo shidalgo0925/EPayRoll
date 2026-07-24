@@ -287,8 +287,23 @@ class TerminationCalculateRequest(BaseModel):
     salario_diario_vacaciones: Decimal | None = None
     salarios_acumulados_anio: Decimal = Decimal("0")
     salario_promedio_indemnizacion: Decimal | None = None
-    cumplio_preaviso: bool = True
+    cumplio_preaviso: bool | None = None
+    salario_pendiente: Decimal = Decimal("0")
+    monto_indemnizacion_acordado: Decimal | None = None
+    monto_prima_acordado: Decimal | None = None
+    tipo_contrato: str | None = None
+    es_indefinido: bool | None = None
+    regimen_indemnizacion: str | None = None
+    fecha_notificacion_preaviso: date | None = None
+    es_tecnico: bool = False
+    preaviso_formalizado: bool = True
+    calcular_indemnizacion: bool | None = None
+    fundamento_indemnizacion: str | None = None
+    notas: str | None = None
+    documento_ref: str | None = None
     persist: bool = False
+    # legacy alias (ignored if tipo_contrato presente)
+    genera_prima: bool | None = None
 
 
 class VacationRequestCreate(BaseModel):

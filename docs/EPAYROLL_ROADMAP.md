@@ -171,11 +171,16 @@ Fase 4 puede iniciar con entrada manual de días/horas si Fase 3 no está comple
 | 4.5 | Descuentos Art. 161 + validación topes | ✅ |
 | 4.6 | Recibos PDF + cierre período | ✅ |
 | 4.7 | Liquidación básica (renuncia) | ✅ |
+| 4.8 | Catálogo terminación Art. 210 (10 causas) | ✅ |
+| 4.8b | Corrección legal: prima indefinido, escala B/C, semanal 12/52 | ✅ |
 
 ### Criterio de salida
 
 - [x] GT-01, GT-04, GT-05, GT-06, GT-09 pasan
 - [x] Planilla quincenal end-to-end para 1 empresa piloto — [EPAYROLL_STATUS §3.4](./EPAYROLL_STATUS.md#34-piloto-end-to-end-checklist)
+- [x] Liquidación Art. 210: 10 causas, salario pendiente, mutuo acuerdo negociable
+- [x] Prima Art. 224 solo contrato indefinido; indemnización Art. 225 régimen B/C (C default)
+- [ ] Futuro: promedio remuneraciones 5 años (Art. 226) — historial salarial
 
 ---
 

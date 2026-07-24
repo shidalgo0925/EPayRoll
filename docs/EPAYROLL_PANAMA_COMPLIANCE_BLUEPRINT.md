@@ -91,6 +91,7 @@
 
 | Artículo | Regla | Valor seed |
 |----------|-------|------------|
+| Art. 210 | Causas de terminación | 10 causas en `liquidation_rules.json` |
 | Art. 222 | Preaviso renuncia | 15 días (2 meses si técnico) |
 | Art. 224 | Prima antigüedad | 1 semana salario / año |
 | Art. 226 | Base prima | Promedio últimos 5 años |

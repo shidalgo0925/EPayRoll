@@ -154,6 +154,7 @@ storage/           # payslips/, exports/ (gitignored)
 | `005_attendance.sql` | Turnos, marcaciones, ausencias |
 | `006_payroll.sql` | Períodos, corridas, líneas, ISR YTD |
 | `007_benefits_compliance.sql` | Vacaciones, décimo, liquidaciones, exports |
+| `018_termination_art210.sql` | Liquidación Art. 210: salario pendiente, notas, documento_ref |
 | `008_integrations.sql` | Cuentas bancarias, sync Odoo |
 | `009_vacation_substitutions.sql` | Sustitutos vacaciones |
 | `010_planilla_operational.sql` | Ficha, ajustes corrida, tasas/cuentas org |
@@ -191,7 +192,7 @@ storage/           # payslips/, exports/ (gitignored)
 | ~~**P3**~~ | ~~UI dashboard ejecutivo~~ | 8 | ✅ KPIs, alertas, pasivos, proyección |
 | ~~**P3**~~ | ~~UI vacaciones + incapacidades~~ | 3, 5 | ✅ Pantallas `/app` |
 | ~~**P3**~~ | ~~Dockerizar API~~ | DevOps | ✅ `Dockerfile` + compose |
-| ~~**P1**~~ | ~~UI liquidaciones~~ | 4 | ✅ Pantalla `/app` — GT-05/GT-06 |
+| ~~**P1**~~ | ~~UI liquidaciones~~ | 4 | ✅ Pantalla `/app` — Art. 210 / GT-05/GT-06 |
 | ~~**P1**~~ | ~~Operación multi-empleado~~ | 4 | ✅ Alta + contrato, corrida batch multi-emp |
 | ~~**P1**~~ | ~~Planilla operador (26 cols)~~ | 4 | ✅ Vista web + ajustes inline |
 | ~~**P1**~~ | ~~Asistencia estándar (facts table)~~ | 3 | ✅ CSV/API + UI + use_attendance |
@@ -265,6 +266,8 @@ Ver `.env.example` en la raíz del repo.
 | 2026-06-21 | Descuentos tardanza en asistencia/planilla, beneficios, liquidación PDF, reset demo. Ver [ANALISTA_CONTEXTO.md](./ANALISTA_CONTEXTO.md). |
 | 2026-06-21 | Planilla operador: vista 26 cols, config legal por org, ficha/teléfono. Export Excel/PDF planilla. |
 | 2026-07-23 | JWT local sin vencimiento en prueba (`EPAYROLL_JWT_EXPIRES_HOURS=0`). Roadmap: habilitar expiración al activar/vencer licencia. |
+| 2026-07-23 | Liquidaciones Art. 210: 10 causas, salario pendiente manual, mutuo acuerdo negociable, migración `018`. |
+| 2026-07-23 | Corrección legal liquidación: prima solo indefinido, Art. 225 B/C, semanal×12/52, suspensión condicional, migración `019`. |
 
 ---
 

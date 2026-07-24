@@ -3098,26 +3098,47 @@
     }
   }
 
-  const CAUSAS = [
-    { value: "RENUNCIA", label: "Renuncia" },
+  const CAUSAS_FALLBACK = [
+    { value: "RENUNCIA", label: "Renuncia voluntaria", genera_preaviso: true },
+    { value: "RENUNCIA_JUSTIFICADA", label: "Renuncia justificada" },
     { value: "DESPIDO_JUSTIFICADO", label: "Despido justificado" },
     { value: "DESPIDO_INJUSTIFICADO", label: "Despido injustificado" },
+    { value: "MUTUO_ACUERDO", label: "Mutuo acuerdo", indemnizacion_negociable: true, requiere_documento: true },
+    { value: "VENCIMIENTO_CONTRATO", label: "Vencimiento de contrato a término" },
+    { value: "FIN_OBRA", label: "Conclusión de obra determinada" },
+    { value: "MUERTE_TRABAJADOR", label: "Muerte del trabajador" },
+    { value: "MUERTE_EMPLEADOR", label: "Muerte del empleador" },
+    { value: "SUSPENSION_PROLONGADA", label: "Prolongación de suspensión del contrato", indemnizacion_condicional: true },
   ];
 
   function todayIso() {
     return new Date().toISOString().slice(0, 10);
   }
 
+  function isDeathCausa(codigo) {
+    return codigo === "MUERTE_TRABAJADOR" || codigo === "MUERTE_EMPLEADOR";
+  }
+
   async function renderLiquidations(container) {
     container.innerHTML = `<p class="loading">Cargando liquidaciones…</p>`;
-    const cfg = getConfig();
     const orgId = requireOrgId();
     let empId = payrollState.employeeId;
     try {
-      const [employees, cases] = await Promise.all([
+      const [employees, cases, causasApi] = await Promise.all([
         fetchOrgEmployees(),
         api(`/api/v1/organizations/${orgId}/terminations`).catch(() => []),
+        api(`/api/v1/termination/causes`).catch(() => null),
       ]);
+      const causas = (causasApi && causasApi.length
+        ? causasApi.map((c) => ({
+            value: c.codigo,
+            label: c.label,
+            genera_preaviso: !!(c.genera_preaviso ?? c.preaviso_deduccion),
+            indemnizacion_negociable: !!c.indemnizacion_negociable,
+            indemnizacion_condicional: !!c.indemnizacion_condicional,
+            requiere_documento: !!c.requiere_documento,
+          }))
+        : CAUSAS_FALLBACK);
       if (!empId && employees.length) empId = employees[0].id;
 
       let balance = null;
@@ -3138,16 +3159,19 @@
       const diasVac = termContext?.dias_vacaciones_pendientes ?? balance?.dias_pendientes ?? balance?.dias_pendiente ?? "0";
       const salariosYtd = termContext?.salarios_acumulados_anio ?? "0";
       const salarioPrima = termContext?.salario_base ?? "";
+      const tipoCtr = termContext?.tipo_contrato || "—";
+      const esIndef = termContext?.es_indefinido;
+      const regimenDefault = termContext?.regimen_indemnizacion_default || "C";
 
       container.innerHTML = `
-        <div class="page-header page-header-sub"><h1>Liquidaciones</h1><p>GT-05 / GT-06 · cálculo, registro y PDF</p></div>
-        ${termContext ? `<div class="panel"><p class="settings-kv"><strong>${escHtml(termContext.nombres)} ${escHtml(termContext.apellidos)}</strong> · Contrato desde ${escHtml(termContext.fecha_inicio_contrato || "—")} · Salario ${fmtMoney(termContext.salario_base)} · YTD bruto ${fmtMoney(termContext.salarios_acumulados_anio)}</p></div>` : ""}
+        <div class="page-header page-header-sub"><h1>Liquidaciones</h1><p>Art. 210 CT · matriz legal v3 · escala C por defecto</p></div>
+        ${termContext ? `<div class="panel"><p class="settings-kv"><strong>${escHtml(termContext.nombres)} ${escHtml(termContext.apellidos)}</strong> · Contrato ${escHtml(tipoCtr)}${esIndef != null ? ` (${esIndef ? "indefinido → prima Art. 224" : "no indefinido → sin prima"})` : ""} · desde ${escHtml(termContext.fecha_inicio_contrato || "—")} · Salario ${fmtMoney(termContext.salario_base)} · YTD bruto ${fmtMoney(termContext.salarios_acumulados_anio)}</p></div>` : ""}
         <div class="panel">
           <h2>Casos guardados</h2>
           <table class="table-crud"><thead><tr><th>Empleado</th><th>Causa</th><th>Terminación</th><th>Total</th><th></th></tr></thead><tbody>
             ${cases.length ? cases.map((c) => `<tr>
               <td>${escHtml(c.nombres)} ${escHtml(c.apellidos)}</td>
-              <td>${escHtml(c.causa)}</td>
+              <td>${escHtml(c.causa_label || c.causa)}</td>
               <td>${escHtml(c.fecha_terminacion)}</td>
               <td>${fmtMoney(c.total)}</td>
               <td class="crud-actions">
@@ -3164,20 +3188,38 @@
               <select id="liq-emp" name="employee" class="emp-select">${employeeOptions(employees, empId)}</select>
             </label>
             <label>Causa
-              <select name="causa">${CAUSAS.map((c) => `<option value="${c.value}">${c.label}</option>`).join("")}</select>
+              <select id="liq-causa" name="causa">${causas.map((c) => `<option value="${c.value}">${escHtml(c.label)}</option>`).join("")}</select>
             </label>
             <label>Terminación<input type="date" name="fecha_terminacion" value="${todayIso()}" required /></label>
-            <label>Cumplió preaviso<input type="checkbox" name="cumplio_preaviso" checked style="width:auto;margin-top:0.35rem" /></label>
+            <label>Régimen indem.
+              <select name="regimen_indemnizacion">
+                <option value="C" ${regimenDefault === "C" ? "selected" : ""}>C — Ley 44/1995 (default)</option>
+                <option value="B" ${regimenDefault === "B" ? "selected" : ""}>B — histórica</option>
+              </select>
+            </label>
+            <div id="liq-preaviso-wrap" style="display:contents">
+              <label>Notificación preaviso<input type="date" name="fecha_notificacion_preaviso" /></label>
+              <label>Es técnico<input type="checkbox" name="es_tecnico" style="width:auto;margin-top:0.35rem" /></label>
+              <label>Preaviso formalizado<input type="checkbox" name="preaviso_formalizado" checked style="width:auto;margin-top:0.35rem" /></label>
+              <label>Cumplió preaviso<input type="checkbox" name="cumplio_preaviso" checked style="width:auto;margin-top:0.35rem" /></label>
+            </div>
           </form>
         </div>
         <div class="panel">
           <h2>Parámetros</h2>
           <form id="liq-params" class="inline-form">
+            <label>Salario pendiente<input type="number" name="salario_pendiente" step="0.01" min="0" value="0" /></label>
             <label>Días vac. pend.<input type="number" name="dias_vacaciones" step="0.5" min="0" value="${diasVac}" /></label>
             <label>Salario prima<input type="number" name="salario_prima" step="0.01" min="0" value="${salarioPrima}" placeholder="Auto contrato" /></label>
             <label>Salario diario vac.<input type="number" name="salario_diario_vac" step="0.01" min="0" placeholder="Opcional" /></label>
             <label>Salarios acum. año<input type="number" name="salarios_anio" step="0.01" min="0" value="${salariosYtd}" /></label>
             <label>Salario indem.<input type="number" name="salario_indem" step="0.01" min="0" placeholder="Opcional" /></label>
+            <label id="liq-indem-acord-wrap" style="display:none">Indem. acordada<input type="number" name="indem_acordada" step="0.01" min="0" placeholder="Mutuo acuerdo" /></label>
+            <label id="liq-prima-acord-wrap" style="display:none">Prima acordada<input type="number" name="prima_acordada" step="0.01" min="0" placeholder="Opcional" /></label>
+            <label id="liq-doc-wrap" style="display:none">Documento ref.<input type="text" name="documento_ref" placeholder="Acta / convenio" /></label>
+            <label id="liq-notas-wrap" style="display:none">Notas / beneficiario<input type="text" name="notas" placeholder="Beneficiario u observaciones" /></label>
+            <label id="liq-cond-indem-wrap" style="display:none">Incluir indem. (condicional)<input type="checkbox" name="calcular_indemnizacion" style="width:auto;margin-top:0.35rem" /></label>
+            <label id="liq-fundamento-wrap" style="display:none">Fundamento indem.<input type="text" name="fundamento_indemnizacion" placeholder="Base legal / dictamen" /></label>
           </form>
           <div class="btn-row" style="margin-top:0.75rem;margin-bottom:0">
             <button type="button" class="btn" id="liq-calc">Calcular</button>
@@ -3192,6 +3234,27 @@
 
       let lastPayload = null;
 
+      const causaMeta = (codigo) => causas.find((c) => c.value === codigo) || {};
+
+      const syncCausaFields = () => {
+        const codigo = document.getElementById("liq-causa").value;
+        const meta = causaMeta(codigo);
+        const showPreaviso = !!meta.genera_preaviso;
+        const showNeg = !!meta.indemnizacion_negociable;
+        const showDoc = !!meta.requiere_documento;
+        const showCond = !!meta.indemnizacion_condicional;
+        const showNotas = isDeathCausa(codigo) || showDoc;
+        document.getElementById("liq-preaviso-wrap").style.display = showPreaviso ? "contents" : "none";
+        document.getElementById("liq-indem-acord-wrap").style.display = showNeg ? "" : "none";
+        document.getElementById("liq-prima-acord-wrap").style.display = showNeg ? "" : "none";
+        document.getElementById("liq-doc-wrap").style.display = showDoc ? "" : "none";
+        document.getElementById("liq-notas-wrap").style.display = showNotas ? "" : "none";
+        document.getElementById("liq-cond-indem-wrap").style.display = showCond ? "" : "none";
+        document.getElementById("liq-fundamento-wrap").style.display = showCond ? "" : "none";
+      };
+      document.getElementById("liq-causa").onchange = syncCausaFields;
+      syncCausaFields();
+
       const reloadEmp = async (id) => {
         payrollState.employeeId = id;
         savePayrollState();
@@ -3204,11 +3267,15 @@
         document.getElementById("liq-result").innerHTML = `
           <p class="settings-kv" style="margin-bottom:0.75rem">
             <strong>Caso:</strong> <code>${escHtml(data.case_id)}</code> ·
-            <strong>Causa:</strong> ${escHtml(data.causa || "—")} ·
+            <strong>Causa:</strong> ${escHtml(data.causa_label || data.causa || "—")} ·
+            <strong>Régimen:</strong> ${escHtml(data.regimen_indemnizacion || "—")} ·
             <strong>Terminación:</strong> ${escHtml(data.fecha_terminacion || "—")}
+            ${data.documento_ref ? ` · <strong>Doc:</strong> ${escHtml(data.documento_ref)}` : ""}
+            ${data.notas ? ` · <strong>Notas:</strong> ${escHtml(data.notas)}` : ""}
             ${data.case_id ? `<button type="button" class="btn btn-sm" id="liq-result-pdf" style="margin-left:0.5rem">Descargar PDF</button>` : ""}
           </p>
           <table><thead><tr><th>Concepto</th><th>Monto</th></tr></thead><tbody>
+            <tr><td>Salario pendiente</td><td>${fmtMoney(data.monto_salario_pendiente)}</td></tr>
             <tr><td>Vacaciones</td><td>${fmtMoney(data.monto_vacaciones)}</td></tr>
             <tr><td>Décimo</td><td>${fmtMoney(data.monto_decimo)}</td></tr>
             <tr><td>Prima antigüedad</td><td>${fmtMoney(data.monto_prima)}</td></tr>
@@ -3228,28 +3295,62 @@
         const p = document.getElementById("liq-params");
         const fd = new FormData(f);
         const pd = new FormData(p);
+        const causa = fd.get("causa");
+        const meta = causaMeta(causa);
         const body = {
-          causa: fd.get("causa"),
+          causa,
           fecha_terminacion: fd.get("fecha_terminacion"),
-          cumplio_preaviso: fd.get("cumplio_preaviso") === "on",
+          regimen_indemnizacion: fd.get("regimen_indemnizacion") || "C",
           dias_vacaciones_pendientes: Number(pd.get("dias_vacaciones") || 0),
           salarios_acumulados_anio: Number(pd.get("salarios_anio") || 0),
+          salario_pendiente: Number(pd.get("salario_pendiente") || 0),
           persist,
         };
+        if (termContext?.tipo_contrato) body.tipo_contrato = termContext.tipo_contrato;
+        if (esIndef != null) body.es_indefinido = !!esIndef;
+        if (meta.genera_preaviso) {
+          const fechaNotif = fd.get("fecha_notificacion_preaviso");
+          if (fechaNotif) body.fecha_notificacion_preaviso = fechaNotif;
+          body.es_tecnico = fd.get("es_tecnico") === "on";
+          body.preaviso_formalizado = fd.get("preaviso_formalizado") === "on";
+          if (!fechaNotif) body.cumplio_preaviso = fd.get("cumplio_preaviso") === "on";
+        }
         const salPrima = pd.get("salario_prima");
         const salDiario = pd.get("salario_diario_vac");
         const salIndem = pd.get("salario_indem");
+        const indemAcord = pd.get("indem_acordada");
+        const primaAcord = pd.get("prima_acordada");
+        const docRef = (pd.get("documento_ref") || "").toString().trim();
+        const notas = (pd.get("notas") || "").toString().trim();
+        const fundamento = (pd.get("fundamento_indemnizacion") || "").toString().trim();
         if (salPrima) body.salario_promedio_prima = Number(salPrima);
         if (salDiario) body.salario_diario_vacaciones = Number(salDiario);
         if (salIndem) body.salario_promedio_indemnizacion = Number(salIndem);
+        if (indemAcord !== "" && indemAcord != null) body.monto_indemnizacion_acordado = Number(indemAcord);
+        if (primaAcord !== "" && primaAcord != null) body.monto_prima_acordado = Number(primaAcord);
+        if (docRef) body.documento_ref = docRef;
+        if (notas) body.notas = notas;
+        if (meta.indemnizacion_condicional) {
+          body.calcular_indemnizacion = pd.get("calcular_indemnizacion") === "on";
+          if (fundamento) body.fundamento_indemnizacion = fundamento;
+          if (persist && body.calcular_indemnizacion && !fundamento) {
+            throw new Error("Indique el fundamento legal para incluir indemnización condicional");
+          }
+        }
+        if (persist && meta.requiere_documento && !docRef) {
+          throw new Error("Indique la referencia del documento de mutuo acuerdo");
+        }
         return { emp, body };
       };
 
       const renderResult = (data) => {
         if (data.case_id) lastCaseId = data.case_id;
         const lines = data.lines || [];
+        const snap = data.config_snapshot || {};
         document.getElementById("liq-result").innerHTML = `
           <p class="settings-kv" style="margin-bottom:0.75rem">
+            <strong>Causa:</strong> ${escHtml(data.causa_label || data.causa || "—")} ·
+            <strong>Régimen:</strong> ${escHtml(snap.regimen_indemnizacion || data.regimen_indemnizacion || "—")} ·
             <strong>Bruto:</strong> ${fmtMoney(data.bruto)} ·
             <strong>Deducciones:</strong> ${fmtMoney(data.deducciones)} ·
             <strong>Neto:</strong> ${fmtMoney(data.neto)}
@@ -3283,7 +3384,9 @@
 
       document.getElementById("liq-persist").onclick = async () => {
         try {
-          const { emp, body } = lastPayload || buildBody(true);
+          const fresh = buildBody(true);
+          const { emp, body } = fresh;
+          lastPayload = { emp, body };
           const data = await api(`/api/v1/employees/${emp}/termination/calculate`, {
             method: "POST",
             body: JSON.stringify({ ...body, persist: true }),

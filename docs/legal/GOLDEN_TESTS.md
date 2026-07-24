@@ -137,6 +137,46 @@ Casos de prueba con valores esperados para regresión automática del motor de c
 
 > + salarios caídos según Art. 218 si aplica juicio.
 
+### GT-06b — Escala C (Ley 44/1995, default producto)
+
+**Régimen:** `C`  
+**Antigüedad:** 5 años · salario B/. 2,000  
+**Salario semanal:** `2000 × 12 / 52` = **B/. 461.54**  
+**Semanas:** `5 × 3.4` = 17  
+**Indemnización:** 17 × 461.54 = **B/. 7,846.18**
+
+### GT-05b — Prima solo indefinido + semanal 12/52
+
+**Salario:** B/. 1,750 · antigüedad 3.33 años · indefinido  
+**Semanal:** 1750 × 12 / 52 = **403.85**  
+**Prima:** 3.33 × 403.85 = **B/. 1,344.82**  
+Si contrato DEFINIDO/OBRA → prima **0**.
+
+### GT-05e — Despido justificado con prima
+
+Si indefinido → vacaciones + décimo + **prima**; sin indemnización.
+
+### GT-05f — Suspensión prolongada
+
+Sin indemnización automática. Solo con `calcular_indemnizacion=true` + `fundamento_indemnizacion`.
+
+---
+
+## GT-05b — Renuncia justificada + indemnización
+
+**Causa:** `RENUNCIA_JUSTIFICADA`  
+Mismos rubros que renuncia voluntaria **más** indemnización Art. 225 (como despido injustificado). Sin descuento de preaviso.
+
+## GT-05c — Mutuo acuerdo (indemnización negociada)
+
+**Causa:** `MUTUO_ACUERDO`  
+Vacaciones + décimo + prima (o prima acordada) + **indemnización digitada** por el contador. Requiere `documento_ref` al guardar.
+
+## GT-05d — Vencimiento / fin de obra
+
+**Causas:** `VENCIMIENTO_CONTRATO`, `FIN_OBRA`  
+Vacaciones + décimo + salario pendiente. Prima solo si el tipo de contrato `genera_prima_antiguedad`.
+
 ---
 
 ## GT-07 — Salario bajo mínimo legal

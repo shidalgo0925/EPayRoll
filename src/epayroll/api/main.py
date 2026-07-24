@@ -100,7 +100,7 @@ from epayroll.db.payslip_repository import PayslipRepository
 from epayroll.db.repositories import ContractRepository, EmployeeRecord, EmployeeRepository, PayrollRepository
 from epayroll.db.termination_repository import TerminationRepository
 from epayroll.db.vacation_repository import VacationRepository
-from epayroll.engine.liquidation import LiquidationInput
+from epayroll.engine.liquidation import LiquidationInput, get_causa_config
 from epayroll.payroll.service import PayrollRunOverrides, PayrollService
 
 app = FastAPI(
@@ -944,6 +944,12 @@ def execute_payroll_run(body: PayrollRunCreate) -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@app.get("/api/v1/termination/causes")
+def list_termination_causes() -> list[dict[str, Any]]:
+    """Catálogo Art. 210 — causas de terminación y flags de rubros."""
+    return termination_repo.list_causes()
+
+
 @app.get("/api/v1/employees/{employee_id}/termination/context")
 def get_termination_context(
     employee_id: str,
@@ -960,19 +966,56 @@ def get_termination_context(
 
 @app.post("/api/v1/employees/{employee_id}/termination/calculate")
 def calculate_termination(employee_id: str, body: TerminationCalculateRequest) -> dict[str, Any]:
-    """Calcula liquidación — GT-05 / GT-06."""
+    """Calcula liquidación — Art. 210 / GT-05 / GT-06 (matriz legal v3)."""
+    try:
+        causa_cfg = get_causa_config(body.causa)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    if causa_cfg.requiere_documento and body.persist and not (body.documento_ref or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail="documento_ref requerido para mutuo acuerdo al guardar",
+        )
+
+    if (
+        causa_cfg.indemnizacion_condicional
+        and body.calcular_indemnizacion is True
+        and body.persist
+        and not (body.fundamento_indemnizacion or "").strip()
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="fundamento_indemnizacion requerido al incluir indemnización condicional",
+        )
+
+    if body.regimen_indemnizacion and body.regimen_indemnizacion.upper() not in ("B", "C"):
+        raise HTTPException(status_code=400, detail="regimen_indemnizacion debe ser B o C")
+
     contract = contracts_repo.get_active(employee_id)
     fecha_inicio = body.fecha_inicio
-    if not fecha_inicio and contract:
+    tipo_contrato = body.tipo_contrato
+    es_indefinido = body.es_indefinido
+    if contract:
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT fecha_inicio FROM contracts WHERE id = %s::uuid",
+                    """
+                    SELECT c.fecha_inicio, ct.codigo
+                    FROM contracts c
+                    JOIN contract_types ct ON ct.id = c.contract_type_id
+                    WHERE c.id = %s::uuid
+                    """,
                     (contract.id,),
                 )
                 row = cur.fetchone()
                 if row:
-                    fecha_inicio = row[0]
+                    if not fecha_inicio:
+                        fecha_inicio = row[0]
+                    if not tipo_contrato:
+                        tipo_contrato = row[1]
+    if es_indefinido is None and tipo_contrato:
+        es_indefinido = tipo_contrato.upper() == "INDEFINIDO"
     if not fecha_inicio:
         raise HTTPException(status_code=400, detail="fecha_inicio requerida")
 
@@ -981,6 +1024,8 @@ def calculate_termination(employee_id: str, body: TerminationCalculateRequest) -
         salario = contract.salario_base
     if salario is None:
         raise HTTPException(status_code=400, detail="salario_promedio_prima requerido")
+
+    regimen = body.regimen_indemnizacion.upper() if body.regimen_indemnizacion else None
 
     inp = LiquidationInput(
         causa=body.causa,
@@ -992,6 +1037,19 @@ def calculate_termination(employee_id: str, body: TerminationCalculateRequest) -
         salarios_acumulados_anio=body.salarios_acumulados_anio,
         salario_promedio_indemnizacion=body.salario_promedio_indemnizacion,
         cumplio_preaviso=body.cumplio_preaviso,
+        salario_pendiente=body.salario_pendiente,
+        monto_indemnizacion_acordado=body.monto_indemnizacion_acordado,
+        monto_prima_acordado=body.monto_prima_acordado,
+        tipo_contrato=tipo_contrato,
+        es_indefinido=es_indefinido,
+        regimen_indemnizacion=regimen,  # type: ignore[arg-type]
+        fecha_notificacion_preaviso=body.fecha_notificacion_preaviso,
+        es_tecnico=body.es_tecnico,
+        preaviso_formalizado=body.preaviso_formalizado,
+        calcular_indemnizacion=body.calcular_indemnizacion,
+        fundamento_indemnizacion=body.fundamento_indemnizacion,
+        notas=body.notas,
+        documento_ref=body.documento_ref,
     )
     result = termination_repo.calculate(inp)
     if body.persist:
@@ -1004,7 +1062,7 @@ def calculate_termination(employee_id: str, body: TerminationCalculateRequest) -
             )
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e)) from e
-    return TerminationRepository._format_result("", result)
+    return TerminationRepository._format_result("", result, inp=inp)
 
 
 @app.get("/api/v1/termination/{case_id}")
